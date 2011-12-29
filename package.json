@@ -24,5 +24,8 @@
 	"scripts": {
 		"start": "node server.js"
 	},
-	"main": "server.js"
+	"main": "server.js",
+	"engine": {
+        "node": ">=0.6"
+    }
 }
