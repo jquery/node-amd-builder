@@ -1,0 +1,28 @@
+{
+	"name": "amd-builder",
+	"description": "A service that builds jQM packages",
+	"version": "0.1.0",
+	"keywords": [ "jquery mobile", "amd", "build"],
+	"maintainers": [{
+		"name": "Ghislain Seguin",
+		"email": "ghislain@gmail.com"
+	}],
+	"contributors": [{
+		"name": "Ghislain Seguin",
+		"email": "ghislain@gmail.com"
+	}],
+	"repositories": [{
+		"type": "git",
+		"url": "node@amd-builder.no.de:repo"
+	}],
+	"dependencies": {
+		"express": "2.5.2",
+		"request": "latest",
+    	"requirejs": "1.0.3",
+		"async": "latest"
+	},
+	"scripts": {
+		"start": "node server.js"
+	},
+	"main": "server.js"
+}
