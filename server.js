@@ -3,8 +3,8 @@ var app = require( 'express' ).createServer(),
 	exec = require('child_process').exec,
 	spawn = require( 'child_process' ).spawn;
 
-var bareRepo = "/Users/ghislain.seguin/src/jquery-mobile",
-	dstDirBase = "/Users/ghislain.seguin/src/jquery-mobile.";
+var bareRepo = "~/src/jquery-mobile",
+	dstDirBase = "~/src/jquery-mobile.";
 
 
 var gitCommands, gitDir, workTree;
