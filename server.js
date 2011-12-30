@@ -11,6 +11,10 @@ if ( process.env.SERVER === "PRODUCTION" ) {
 	port = 80;
 }
 
+app.get( '/', function( req, res  ) {
+	res.send("<h1 style='text-align: center; font-size: 120px;'>ZOMG JQM-BUILDER</h1>");
+});
+
 app.get( '/fetch', function( req, res ) {
 	exec( "git fetch",
 		{
