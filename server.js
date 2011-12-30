@@ -1,6 +1,7 @@
 var app = require( 'express' ).createServer(),
 	fs = require( 'fs' ),
 	exec = require('child_process').exec,
+    path = require('path'),
 	spawn = require( 'child_process' ).spawn;
 
 var port = 3000,
@@ -24,8 +25,8 @@ app.get( '/fetch', function( req, res ) {
 			env: null
 		},
 		function( error, stdout, stderr ) {
-			console.log('stdout: ' + stdout);
-			console.log('stderr: ' + stderr);
+			//console.log('stdout: ' + stdout);
+			//console.log('stderr: ' + stderr);
 			if (error !== null) {
 			    res.send( error, 500 );
 			} else {
@@ -60,57 +61,42 @@ app.get( '/:tag/checkout', function( req, res ) {
 
 app.get( '/:tag/make', function( req, res ) {
 	var include = ( req.param( "include" ) || "jquery.mobile" ).split( "," ).sort(),
-		dstDir = dstDirBase + req.params.tag + "/compiled/"+include.join( "+" );
+        optimize = req.param( "optimize" ) || "none",
+		dstDir = dstDirBase + req.params.tag + "/compiled/"+include.join( "+" ),
+        dstFile = dstDir + "/jquery.mobile" + (optimize !== "none"?".min":"") + ".js";
 
 	include.push("jquery.mobile.init");
 
-	fs.rmdir( dstDir,
-		function() {
-			fs.mkdir( dstDir,
-				function() {
-					exec( [ process.execPath,
-							__dirname + '/node_modules/.bin/r.js',
-							'-o baseUrl=js',
-							'include='+include.join(","),
-							'exclude=jquery,order',
-							'out=' + dstDir + '/jquery.mobile.compiled.js',
-							'pragmasOnSave.jqmBuildExclude=true',
-							'optimize=none' ].join( " " ),
-						{
-							encoding: 'utf8',
-                            timeout: 0,
-							cwd: dstDirBase + req.params.tag,
-							env: null
-						},
-						function( error, stdout, stderr ) {
-							console.log('stdout: ' + stdout);
-							console.log('stderr: ' + stderr);
-							if (error !== null) {
-								res.send( error, 500 );
-							} else {
-								res.send( stdout );
-							}
-						}
-					);
-
-		//		requirejs.optimize(
-		//			{
-		//				baseUrl: dstDirBase + req.params.tag + "/js",
-		//				dir: dstDirBase + req.params.tag + "/compiled/"+include.join( "+" ),
-		//				optimize: "none",
-		//				pragmasOnSave: {
-		//					jqmBuildExclude: true
-		//				}
-		//			},
-		//			function( result ) {
-		//				console.log("yay!");
-		//				res.send( result );
-		//			}
-		//		)
-				}
-			)
-		}
-	)
+    path.exists( dstFile, function ( exists ) {
+        if ( exists ) {
+            res.download( dstFile, path.basename( dstFile ) );
+        } else {
+            exec( [ process.execPath,
+                    __dirname + '/node_modules/.bin/r.js',
+                    '-o baseUrl=js',
+                    'include='+include.join(","),
+                    'exclude=jquery,order',
+                    'out=' + dstFile,
+                    'pragmasOnSave.jqmBuildExclude=true',
+                    'optimize='+optimize ].join( " " ),
+                {
+                    encoding: 'utf8',
+                    timeout: 0,
+                    cwd: dstDirBase + req.params.tag,
+                    env: null
+                },
+                function( error, stdout, stderr ) {
+                    console.log('stdout: ' + stdout);
+                    console.log('stderr: ' + stderr);
+                    if (error !== null) {
+                        res.send( error, 500 );
+                    } else {
+                        res.download( dstFile, path.basename( dstFile ) );
+                    }
+                }
+            );
+        }
+    });
 });
 
 app.listen( port );
