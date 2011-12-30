@@ -18,8 +18,7 @@
 	"dependencies": {
 		"express": "2.5.2",
 		"request": "latest",
-    	"requirejs": "1.0.3",
-		"async": "latest"
+   	"requirejs": "latest"
 	},
 	"scripts": {
 		"start": "SERVER=PRODUCTION BARE_REPO=/home/node/src/jquery-mobile.git OUTPUT_DIR=/home/node/src node server.js"
