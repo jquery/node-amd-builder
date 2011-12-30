@@ -22,7 +22,7 @@
 		"async": "latest"
 	},
 	"scripts": {
-		"start": "node server.js"
+		"start": "SERVER=PRODUCTION node server.js"
 	},
 	"main": "server.js",
 	"engine": {

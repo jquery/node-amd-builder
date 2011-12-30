@@ -3,37 +3,12 @@ var app = require( 'express' ).createServer(),
 	exec = require('child_process').exec,
 	spawn = require( 'child_process' ).spawn;
 
-var bareRepo = "~/src/jquery-mobile.git",
+var port = 3000,
+	bareRepo = "~/src/jquery-mobile.git",
 	dstDirBase = "~/src/jquery-mobile.";
 
-
-var gitCommands, gitDir, workTree;
-var gitENOENT = /fatal: (Path '([^']+)' does not exist in '([0-9a-f]{40})'|ambiguous argument '([^']+)': unknown revision or path not in the working tree.)/;
-
-// Internal helper to talk to the git subprocess
-function gitExec(commands, callback) {
-	//commands = gitCommands.concat( commands );
-	var child = spawn( "git", commands );
-	console.log('Spawned child pid: ' + child.pid);
-	var stdout = [], stderr = [];
-	child.stdout.on( 'data', function (text) {
-		stdout[stdout.length] = text;
-	} );
-	child.stderr.on( 'data', function (text) {
-		stderr[stderr.length] = text;
-	} );
-	child.on( 'exit', function (code) {
-		if ( code > 0 ) {
-			var err = new Error( "git " + commands.join( " " ) + "\n" + stderr.join( " " ) );
-			if ( gitENOENT.test( err.message ) ) {
-				err.errno = -1;
-			}
-			callback( err );
-			return;
-		}
-		callback( null, stdout );
-	} );
-	child.stdin.end();
+if ( process.env.SERVER === "PRODUCTION" ) {
+	port = 80;
 }
 
 app.get( '/fetch', function( req, res ) {
@@ -134,4 +109,4 @@ app.get( '/:tag/make', function( req, res ) {
 	)
 });
 
-app.listen( 3000 );
+app.listen( port );
