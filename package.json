@@ -22,7 +22,7 @@
 		"async": "latest"
 	},
 	"scripts": {
-		"start": "SERVER=PRODUCTION node server.js"
+		"start": "SERVER=PRODUCTION BARE_REPO=/home/node/src/jquery-mobile.git OUTPUT_DIR=/home/node/src node server.js"
 	},
 	"main": "server.js",
 	"engine": {

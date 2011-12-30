@@ -4,8 +4,8 @@ var app = require( 'express' ).createServer(),
 	spawn = require( 'child_process' ).spawn;
 
 var port = 3000,
-	bareRepo = "~/src/jquery-mobile.git",
-	dstDirBase = "~/src/jquery-mobile.";
+	bareRepo = process.env.BARE_REPO || "../jquery-mobile",
+	dstDirBase = ( process.env.OUTPUT_DIR || "../src" ) + "/jquery-mobile.";
 
 if ( process.env.SERVER === "PRODUCTION" ) {
 	port = 80;
