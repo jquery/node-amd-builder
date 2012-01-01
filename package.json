@@ -21,7 +21,7 @@
    	"requirejs": "latest"
 	},
 	"scripts": {
-		"start": "NODE_ENV=production REPO_BASE_DIR=/home/node/repositories WORK_BASE_DIR=/home/node/src node server.js"
+		"start": "REPO_BASE_DIR=/home/node/repositories WORK_BASE_DIR=/home/node/src node server.js"
 	},
 	"main": "server.js",
 	"engine": {
