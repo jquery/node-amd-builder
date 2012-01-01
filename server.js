@@ -10,16 +10,14 @@ var express = require( 'express'),
     regexp = require( './lib/regexp' ),
     requirejs = require( './lib/r.js' );
 
-var port = 3000,
-    repoBaseDir = process.env.REPO_BASE_DIR,
+var repoBaseDir = process.env.REPO_BASE_DIR,
     workBaseDir = process.env.WORK_BASE_DIR;
 
 app.configure('development', function(){
-    app.use(express.errorHandler({ dumpExceptions: true, showStack: true }));
+    app.use( express.errorHandler({ dumpExceptions: true, showStack: true }) );
 });
 
 app.configure('production', function(){
-    port = 80;
 });
 
 app.use(express.bodyParser());
@@ -203,4 +201,4 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
     });
 });
 
-app.listen( port );
+app.listen( process.env.NODE_HTTP_PORT || 80 );
