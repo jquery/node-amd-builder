@@ -10,7 +10,8 @@ var express = require( 'express'),
     regexp = require( './lib/regexp' ),
     requirejs = require( './lib/r.js' );
 
-var repoBaseDir = process.env.REPO_BASE_DIR,
+var httpPort = process.env.NODE_HTTP_PORT || 80,
+    repoBaseDir = process.env.REPO_BASE_DIR,
     workBaseDir = process.env.WORK_BASE_DIR;
 
 app.configure('development', function(){
@@ -201,4 +202,5 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
     });
 });
 
-app.listen( process.env.NODE_HTTP_PORT || 80 );
+console.log( "listening on port:", httpPort );
+app.listen( httpPort );
