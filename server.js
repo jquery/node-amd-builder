@@ -11,8 +11,8 @@ var express = require( 'express'),
     requirejs = require( './lib/r.js' );
 
 var httpPort = process.env.PORT || 8080,
-    repoBaseDir = process.env.REPO_BASE_DIR,
-    workBaseDir = process.env.WORK_BASE_DIR;
+    repoBaseDir = path.normalize( process.env.REPO_BASE_DIR ),
+    workBaseDir = path.normalize ( process.env.WORK_BASE_DIR );
 
 app.configure('development', function(){
     app.use( express.errorHandler({ dumpExceptions: true, showStack: true }) );
@@ -47,38 +47,50 @@ app.get( '/:repo/fetch', function ( req, res ) {
     );
 });
 
+function fetch( repo, callback ) {
+    exec( "git fetch",
+        {
+            encoding: 'utf8',
+            timeout: 0,
+            cwd: repo,
+            env: null
+        },
+        callback
+    );
+}
+
 app.post( '/post_receive', function ( req, res ) {
-    var payload = req.body.payload;
+    var payload = req.body.payload,
+        onFetch = function ( error, stdout, stderr ) {
+            if ( error !== null ) {
+                res.send( error, 500 );
+            } else {
+                res.send( stdout );
+            }
+        },
+        checkExistence = function( candidates ) {
+            path.exists( candidates.shift() , function( exists ) {
+                if ( exists ) {
+                    fetch( repoDir, onFetch );
+                } else {
+                    if ( candidates.length ) {
+                        checkExistence( candidates );
+                    } else {
+                        res.send( "Wrong door!", 404 );
+                    }
+                }
+            });
+        };
 
     if ( payload ) {
         try {
             payload = JSON.parse( payload );
 
             if ( payload.repository && payload.repository.name ) {
-                var repoDir = repoBaseDir + payload.repository.name + ".git";
-                path.exists( repoDir , function( exists ) {
-                    if ( exists ) {
-                        exec( "git fetch",
-                            {
-                                encoding:'utf8',
-                                timeout:0,
-                                cwd: repoDir,
-                                env:null
-                            },
-                            function ( error, stdout, stderr ) {
-                                if ( error !== null ) {
-                                    res.send( error, 500 );
-                                } else {
-                                    res.send( stdout );
-                                }
-                            }
-                        );
-                    } else {
-                        res( "Wrong door!", 404 );
-                    }
-                });
+                var repoDir = repoBaseDir + "/" + payload.repository.name;
+                checkExistence( [ repoDir, repoDir + ".git" ] );
             } else {
-                res( "Wrong door!", 404 );
+                res.send( "Wrong door!", 404 );
             }
         } catch( e ) {
             res.send( e, 500 );
