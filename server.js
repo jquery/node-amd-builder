@@ -87,15 +87,16 @@ app.post( '/post_receive', function ( req, res ) {
     }
 });
 
-app.get( '/:tag/checkout', function ( req, res ) {
-    var dstDir = dstDirBase + req.params.tag;
+app.get( '/:repo/:tag/checkout', function ( req, res ) {
+    var wsDir   = workBaseDir + "/" + req.params.repo + "." + req.params.tag;
+
     fs.mkdir( dstDir, function () {
-        exec( "git --work-tree=" + dstDir + " checkout -f " + req.params.tag,
+        exec( "git --work-tree=" + wsDir + " checkout -f " + req.params.tag,
             {
-                encoding:'utf8',
-                timeout:0,
-                cwd:bareRepo,
-                env:null
+                encoding: 'utf8',
+                timeout: 0,
+                cwd: wsDir,
+                env: null
             },
             function ( error, stdout, stderr ) {
                 console.log( 'stdout: ' + stdout );
@@ -162,8 +163,8 @@ app.get( '/:repo/:tag/make', function ( req, res ) {
 app.get( '/:repo/:tag/dependencies', function ( req, res ) {
     var wsDir   = workBaseDir + "/" + req.params.repo + "." + req.params.tag,
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
-        names = path.basename( req.param( "names", req.params.repo ), ".js" ).split( "," ).sort(),
-        baseUrl = wsDir + "/" + req.param( "baseUrl", "." ),
+        names = req.param( "names", req.params.repo ).split( "," ).sort(),
+        baseUrl = path.dirname( wsDir + "/" + req.param( "baseUrl", "." ) ),
         shasum = crypto.createHash( 'sha1' ),
         filename = wsDir + "/deps-";
 
@@ -177,17 +178,22 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
         } else {
             requirejs.tools.traceFiles( {
                     baseUrl: baseUrl,
-                    modules: names.map( function( name ) { return { name: path.basename( name, ".js" ) } } ),
+                    modules: names.map( function( name ) { return { name: name } } ),
                     optimize: "none"
                 },
                 function( deps ) {
                     // Walk through the dep map and remove baseUrl and js extention
-                    var module, baseUrlRE = new RegExp( "^" + regexp.escapeString( baseUrl ) );
+                    var module,
+                        baseUrlRE = new RegExp( "^" + regexp.escapeString( baseUrl + "/") ),
+                        jsExtRE = new RegExp( regexp.escapeString( ".js" ) + "$" );
                     for ( module in deps ) {
-                        deps[ module ].files = deps[ module ].files.map(
+                        deps[ module ].files.pop();
+                        deps[ module ].deps = deps[ module ].files.map(
                             function( file ) {
-                                return path.basename( file.replace( baseUrlRE, "" ), ".js" );
-                            })
+                                return file.replace( baseUrlRE, "" ).replace( jsExtRE, "" );
+                            }
+                        );
+                        delete deps[ module ].files;
                     }
                     fs.writeFile( filename, JSON.stringify( deps ),
                         function (err) {
