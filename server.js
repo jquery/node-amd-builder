@@ -165,7 +165,7 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
     var wsDir   = workBaseDir + "/" + req.params.repo + "." + req.params.tag,
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         names = req.param( "names", req.params.repo ).split( "," ).sort(),
-        baseUrl = path.dirname( wsDir + "/" + req.param( "baseUrl", "." ) ),
+        baseUrl = path.normalize( wsDir + "/" + req.param( "baseUrl", "." ) ),
         shasum = crypto.createHash( 'sha1' ),
         filename = wsDir + "/deps-";
 
@@ -179,8 +179,7 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
         } else {
             requirejs.tools.traceFiles( {
                     baseUrl: baseUrl,
-                    modules: names.map( function( name ) { return { name: name } } ),
-                    optimize: "none"
+                    modules: names.map( function( name ) { return { name: name } } )
                 },
                 function( deps ) {
                     // Walk through the dep map and remove baseUrl and js extention
