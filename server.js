@@ -27,26 +27,6 @@ app.get( '/', function ( req, res ) {
     res.send( "<h1 style='text-align: center; font-size: 120px;'>ZOMG JQM-BUILDER</h1>" );
 });
 
-app.get( '/:repo/fetch', function ( req, res ) {
-    exec( "git fetch",
-        {
-            encoding:'utf8',
-            timeout:0,
-            cwd: bareRepo,
-            env:null
-        },
-        function ( error, stdout, stderr ) {
-            //console.log('stdout: ' + stdout);
-            //console.log('stderr: ' + stderr);
-            if ( error !== null ) {
-                res.send( error, 500 );
-            } else {
-                res.send( stdout );
-            }
-        }
-    );
-});
-
 function fetch( repo, callback ) {
     exec( "git fetch",
         {
@@ -74,6 +54,22 @@ function checkout( repo, tag, callback ){
         );
     });
 }
+
+app.get( '/:repo/fetch', function ( req, res ) {
+    var repo = repoBaseDir + "/" + req.params.repo;
+
+    fetch( repo,
+        function ( error, stdout, stderr ) {
+            //console.log('stdout: ' + stdout);
+            //console.log('stderr: ' + stderr);
+            if ( error !== null ) {
+                res.send( error, 500 );
+            } else {
+                res.send( stdout );
+            }
+        }
+    );
+});
 
 app.post( '/post_receive', function ( req, res ) {
     var payload = req.body.payload,
