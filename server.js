@@ -57,6 +57,22 @@ function fetch( repo, callback ) {
         },
         callback
     );
+};
+
+function checkout( repo, tag, callback ){
+    var wsDir  = workBaseDir + "/" + repo + "." + tag;
+
+    fs.mkdir( dstDir, function () {
+        exec( "git --work-tree=" + wsDir + " checkout -f " + tag,
+            {
+                encoding: 'utf8',
+                timeout: 0,
+                cwd: wsDir,
+                env: null
+            },
+            callback
+        );
+    });
 }
 
 app.post( '/post_receive', function ( req, res ) {
@@ -68,13 +84,13 @@ app.post( '/post_receive', function ( req, res ) {
                 res.send( stdout );
             }
         },
-        checkExistence = function( candidates ) {
+        fetchIfExists = function( candidates ) {
             path.exists( candidates.shift() , function( exists ) {
                 if ( exists ) {
                     fetch( repoDir, onFetch );
                 } else {
                     if ( candidates.length ) {
-                        checkExistence( candidates );
+                        fetchIfExists( candidates );
                     } else {
                         res.send( "Wrong door!", 404 );
                     }
@@ -88,7 +104,7 @@ app.post( '/post_receive', function ( req, res ) {
 
             if ( payload.repository && payload.repository.name ) {
                 var repoDir = repoBaseDir + "/" + payload.repository.name;
-                checkExistence( [ repoDir, repoDir + ".git" ] );
+                fetchIfExists( [ repoDir, repoDir + ".git" ] );
             } else {
                 res.send( "Wrong door!", 404 );
             }
