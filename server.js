@@ -1,14 +1,14 @@
 'use strict';
 
-var express = require( 'express'),
+var express = require( 'express' ),
     app = express.createServer(),
     crypto = require( 'crypto' ),
     fs = require( 'fs' ),
     exec = require( 'child_process' ).exec,
     path = require( 'path' ),
-    querystring = require( 'querystring' ),
     regexp = require( './lib/regexp' ),
-    requirejs = require( './lib/r.js' );
+	requirejs = require( 'requirejs' ),
+    requirejs_traceFiles = require( './lib/r.js' );
 
 var httpPort = process.env.PORT || 8080,
     repoBaseDir = path.normalize( process.env.REPO_BASE_DIR ),
@@ -16,6 +16,7 @@ var httpPort = process.env.PORT || 8080,
 
 app.configure('development', function(){
     app.use( express.errorHandler({ dumpExceptions: true, showStack: true }) );
+    app.use( express.logger( 'tiny' ) );
 });
 
 app.configure('production', function(){
@@ -142,45 +143,47 @@ app.get( '/:repo/:tag/make', function ( req, res ) {
         optimize = req.param( "optimize", "none" ),
         baseUrl = req.param( "baseUrl", "." ),
         hasPragmas = !!req.param( "pragmas", false ),
-        pragmas = hasPragmas?querystring.stringify( JSON.parse( req.param( "pragmas" ) ), ",", "=" ).split( "," ).map( function(val) { return "pragmas." + val; } ):[],
+        pragmas = hasPragmas?JSON.parse( req.param( "pragmas" ) ):{},
         hasPragmasOnSave = !!req.param( "pragmasOnSave", false ),
-        pragmasOnSave = hasPragmasOnSave?querystring.stringify( JSON.parse( req.param( "pragmasOnSave" ) ), ",", "=" ).split( "," ).map( function(val) { return "pragmasOnSave." + val; } ):[],
+        pragmasOnSave = hasPragmasOnSave?JSON.parse( req.param( "pragmasOnSave" ) ):{},
         name = path.basename( req.param( "name", req.params.repo ), ".js" ),
+        shasum = crypto.createHash( 'sha1' ),
         wsDir   = workBaseDir + "/" + req.params.repo + "." + req.params.tag,
-        dstDir  = wsDir + "/compiled/" + include.join( "+" ),
-        dstFile = dstDir + "/" + name + (optimize !== "none" ? ".min" : "") + ".js";
+        dstDir, dstFile;
+
+	//Set up the config passed to the optimizer
+	var config = {
+		baseUrl: wsDir + "/" + baseUrl,
+		include: include,
+        pragmas: pragmas,
+        pragmasOnSave: pragmasOnSave
+	};
+
+    shasum.update( JSON.stringify( config ) );
+
+    dstDir = wsDir + "/compiled/" + shasum.digest( 'hex' );
+    dstFile = dstDir + "/" + name + (optimize !== "none" ? ".min" : "") + ".js";
+
+    config.out = dstFile;
+    config.optimize = optimize;
 
     path.exists( dstFile, function ( exists ) {
-        if ( exists ) {
+        if ( false ) {
             res.download( dstFile, path.basename( dstFile ) );
         } else {
-            exec( [ process.execPath,
-                __dirname + '/node_modules/.bin/r.js',
-                '-o',
-                'baseUrl=' + baseUrl,
-                'include=' + include.join( "," ),
-                exclude?'exclude=' + exclude.join( "," ):"",
-                'out=' + dstFile,
-                'optimize=' + optimize ]
-                .concat( pragmas )
-                .concat( pragmasOnSave )
-                .join( " " ),
-                {
-                    encoding:'utf8',
-                    timeout:0,
-                    cwd: wsDir,
-                    env:null
-                },
-                function ( error, stdout, stderr ) {
-                    console.log( 'stdout: ' + stdout );
-                    console.log( 'stderr: ' + stderr );
-                    if ( error !== null ) {
-                        res.send( error, 500 );
-                    } else {
-                        res.download( dstFile, path.basename( dstFile ) );
-                    }
-                }
-            );
+            try {
+
+				requirejs.optimize( config, function (buildResponse) {
+					//buildResponse is just a text output of the modules
+					//included. Load the built file for the contents.
+					fs.readFile( config.out, 'utf8', function( err, contents ) {
+                        if ( err ) throw err;
+						res.send( contents );
+					});
+				});
+			} catch ( e ) {
+				res.send( e.toString(), 500 );
+			}
         }
     });
 });
@@ -201,7 +204,7 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
         if ( exists ){
             res.sendfile( filename );
         } else {
-            requirejs.tools.traceFiles( {
+            requirejs_traceFiles.tools.traceFiles( {
                     baseUrl: baseUrl,
                     modules: names.map( function( name ) { return { name: name } } )
                 },
