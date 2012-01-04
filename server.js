@@ -2,6 +2,7 @@
 
 var express = require( 'express' ),
     app = express.createServer(),
+    async = require( 'async'),
     crypto = require( 'crypto' ),
     fs = require( 'fs' ),
     rimraf = require( 'rimraf' ),
@@ -39,7 +40,7 @@ function fetch( repo, callback ) {
         },
         callback
     );
-};
+}
 
 function checkout( repoName, repoDir, tag, force, callback ){
     if ( typeof force === "function" ) {
@@ -73,7 +74,31 @@ function checkout( repoName, repoDir, tag, force, callback ){
             callback( "Worspace for " + repoName + "/" + tag + " has not been created" );
         }
     });
+}
 
+function getFirstExistingDir( candidates, callback ) {
+    var dir = candidates.shift();
+    path.exists( dir , function( exists ) {
+        if ( exists ) {
+            callback( null, dir );
+        } else {
+            if ( candidates.length ) {
+                getFirstExistingDir( candidates, callback );
+            } else {
+                callback( "none found" );
+            }
+        }
+    });
+}
+
+function getRepoDir( repo, callback ) {
+    var repoDir = repoBaseDir + "/" + repo;
+    getFirstExistingDir( [ repoDir, repoDir + ".git" ], callback );
+}
+
+function getWorkspaceDir( repo, tag, callback ) {
+    var workspaceDir = workBaseDir + "/" + repo + "." + tag;
+    callback( null, workspaceDir );
 }
 
 app.get( '/:repo/fetch', function ( req, res ) {
@@ -125,35 +150,46 @@ app.post( '/post_receive', function ( req, res ) {
             tag = payload.ref.split( "/" ).pop();
 
             if ( payload.repository && payload.repository.name ) {
-                repoDir = repoBaseDir + "/" + repo;
-                fetchIfExists( [ repoDir, repoDir + ".git" ],
-                    function( dir ) {
-                        checkout( repo, dir, tag, function( err ) {
-                            var workspace = workBaseDir + "/" + repo + "." + tag,
-                                compiled = workspace + "/compiled";
-
-                            if ( err ) {
-                                res.send( err, 500 );
-                            } else {
-                                rimraf( compiled, function( err ) {
-                                    if ( err ) {
-                                        res.send( err, 500 );
-                                    } else {
-                                        fs.mkdir( compiled, function( err ) {
-                                            if ( err ) {
-                                                res.send( err, 500 );
-                                            } else {
-                                                res.send( "OK" );
-                                            }
-                                        });
-                                    }
-                                });
+                async.waterfall([
+                    function( callback ){
+                        getRepoDir( repo, callback );
+                    },
+                    function( dir, callback ) {
+                        repoDir = dir;
+                        fetch( dir, callback );
+                    },
+                    function( stdout, stderr, callback ) {
+                        checkout( repo, repoDir, tag, callback );
+                    },
+                    function( stdout, stderr, callback ) {
+                        var workspace = workBaseDir + "/" + repo + "." + tag,
+                            compiled = workspace + "/compiled";
+                        async.series([
+                            function( cb ) {
+                                rimraf( compiled, cb );
+                            },
+                            function( cb ) {
+                                fs.mkdir( compiled, cb );
                             }
-                        })
+
+                        ], function( err, results ) {
+                            if ( err )  {
+                                callback( err );
+                            } else {
+                                callback( null, stdout );
+                            }
+                        });
                     }
-                );
+                ],
+                function ( err, result ) {
+                    if ( err ) {
+                        res.send( err, 500 );
+                    } else {
+                        res.send( "OK" );
+                    }
+                });
             } else {
-                res.send( "Payload is missing information", 404 );
+                res.send( "Payload is missing data", 404 );
             }
         } catch( e ) {
             res.send( e, 500 );
@@ -164,26 +200,25 @@ app.post( '/post_receive', function ( req, res ) {
 });
 
 app.get( '/:repo/:tag/checkout', function ( req, res ) {
-    var wsDir = workBaseDir + "/" + req.params.repo + "." + req.params.tag;
+    var repoName = req.params.repo,
+        tag      = req.params.tag;
 
-    fs.mkdir( dstDir, function () {
-        exec( "git --work-tree=" + wsDir + " checkout -f " + req.params.tag,
-            {
-                encoding: 'utf8',
-                timeout: 0,
-                cwd: wsDir,
-                env: null
-            },
-            function ( error, stdout, stderr ) {
-                console.log( 'stdout: ' + stdout );
-                console.log( 'stderr: ' + stderr );
-                if ( error !== null ) {
-                    res.send( error, 500 );
-                } else {
-                    res.send( stdout );
-                }
-            }
-        );
+    async.waterfall([
+        function( callback ) {
+            getRepoDir( repoName, callback )
+        },
+        function( repoDir, callback ) {
+            checkout( repoName, repoDir, tag, callback );
+        },
+        function( stdout, stderr, callback ) {
+            res.send( stdout );
+            callback( null );
+        }
+
+    ], function( err ) {
+        if ( err ) {
+            res.send( err, 500 );
+        }
     });
 });
 

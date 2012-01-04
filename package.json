@@ -16,6 +16,7 @@
 		"url": "node@amd-builder.no.de:repo"
 	}],
 	"dependencies": {
+        "async": "latest",
 		"express": "2.5.2",
 		"request": "latest",
    	    "requirejs": "latest",
