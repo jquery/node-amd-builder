@@ -4,6 +4,7 @@ var express = require( 'express' ),
     app = express.createServer(),
     crypto = require( 'crypto' ),
     fs = require( 'fs' ),
+    rimraf = require( 'rimraf' ),
     exec = require( 'child_process' ).exec,
     path = require( 'path' ),
     regexp = require( './lib/regexp' ),
@@ -43,7 +44,7 @@ function fetch( repo, callback ) {
 function checkout( repo, tag, callback ){
     var wsDir  = workBaseDir + "/" + repo + "." + tag;
 
-    fs.mkdir( dstDir, function () {
+    fs.mkdir( wsDir, function () {
         exec( "git --work-tree=" + wsDir + " checkout -f " + tag,
             {
                 encoding: 'utf8',
@@ -74,17 +75,20 @@ app.get( '/:repo/fetch', function ( req, res ) {
 
 app.post( '/post_receive', function ( req, res ) {
     var payload = req.body.payload,
-        onFetch = function ( error, stdout, stderr ) {
-            if ( error !== null ) {
-                res.send( error, 500 );
-            } else {
-                res.send( stdout );
-            }
-        },
-        fetchIfExists = function( candidates ) {
-            path.exists( candidates.shift() , function( exists ) {
+        repo, repoDir, tag,
+        fetchIfExists = function( candidates, callback ) {
+            var repo = candidates.shift();
+            path.exists( repo , function( exists ) {
                 if ( exists ) {
-                    fetch( repoDir, onFetch );
+                    fetch( repo,
+                        function ( error, stdout, stderr ) {
+                            if ( error !== null ) {
+                                res.send( error, 500 );
+                            } else {
+                                callback( repo );
+                            }
+                        }
+                    );
                 } else {
                     if ( candidates.length ) {
                         fetchIfExists( candidates );
@@ -98,10 +102,32 @@ app.post( '/post_receive', function ( req, res ) {
     if ( payload ) {
         try {
             payload = JSON.parse( payload );
+            repo = payload.repository.name;
+            tag = payload.ref.split( "/" ).pop();
 
             if ( payload.repository && payload.repository.name ) {
-                var repoDir = repoBaseDir + "/" + payload.repository.name;
-                fetchIfExists( [ repoDir, repoDir + ".git" ] );
+                repoDir = repoBaseDir + "/" + repo;
+                fetchIfExists( [ repoDir, repoDir + ".git" ],
+                    function( dir ) {
+                        checkout( repo, tag, function() {
+                            var workspace = workBaseDir + "/" + repo + "." + tag,
+                                compiled = workspace + "/compiled";
+                            rimraf( compiled, function( err ) {
+                                if ( err ) {
+                                    res.send( err, 500 );
+                                } else {
+                                    fs.mkdir( compiled, function( err ) {
+                                        if ( err ) {
+                                            res.send( err, 500 );
+                                        } else {
+                                            res.send( "OK" );
+                                        }
+                                    });
+                                }
+                            });
+                        })
+                    }
+                );
             } else {
                 res.send( "Wrong door!", 404 );
             }
@@ -114,7 +140,7 @@ app.post( '/post_receive', function ( req, res ) {
 });
 
 app.get( '/:repo/:tag/checkout', function ( req, res ) {
-    var wsDir   = workBaseDir + "/" + req.params.repo + "." + req.params.tag;
+    var wsDir = workBaseDir + "/" + req.params.repo + "." + req.params.tag;
 
     fs.mkdir( dstDir, function () {
         exec( "git --work-tree=" + wsDir + " checkout -f " + req.params.tag,
