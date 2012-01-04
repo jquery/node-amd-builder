@@ -41,20 +41,39 @@ function fetch( repo, callback ) {
     );
 };
 
-function checkout( repo, tag, callback ){
-    var wsDir  = workBaseDir + "/" + repo + "." + tag;
+function checkout( repoName, repoDir, tag, force, callback ){
+    if ( typeof force === "function" ) {
+        callback = force;
+        force = false;
+    }
+    if (!repoName) throw new Error( "No repo name specified" );
+    if (!repoDir) throw new Error( "No repo dir specified" );
+    if (!callback) throw new Error( "No callback passed to checkout()" );
+    if (!tag) {
+        tag = "master";
+    }
 
-    fs.mkdir( wsDir, function () {
-        exec( "git --work-tree=" + wsDir + " checkout -f " + tag,
-            {
-                encoding: 'utf8',
-                timeout: 0,
-                cwd: wsDir,
-                env: null
-            },
-            callback
-        );
+    // Workspace
+    var wsDir  = workBaseDir + "/" + repoName + "." + tag;
+
+    path.exists( wsDir, function( exists ) {
+        if ( exists || force ) {
+            fs.mkdir( wsDir, function () {
+                exec( "git --work-tree=" + wsDir + " checkout -f " + tag,
+                    {
+                        encoding: 'utf8',
+                        timeout: 0,
+                        cwd: repoDir,
+                        env: null
+                    },
+                    callback
+                );
+            });
+        } else {
+            callback( "Worspace for " + repoName + "/" + tag + " has not been created" );
+        }
     });
+
 }
 
 app.get( '/:repo/fetch', function ( req, res ) {
@@ -77,15 +96,15 @@ app.post( '/post_receive', function ( req, res ) {
     var payload = req.body.payload,
         repo, repoDir, tag,
         fetchIfExists = function( candidates, callback ) {
-            var repo = candidates.shift();
-            path.exists( repo , function( exists ) {
+            var dir = candidates.shift();
+            path.exists( dir , function( exists ) {
                 if ( exists ) {
-                    fetch( repo,
+                    fetch( dir,
                         function ( error, stdout, stderr ) {
                             if ( error !== null ) {
                                 res.send( error, 500 );
                             } else {
-                                callback( repo );
+                                callback( dir );
                             }
                         }
                     );
@@ -93,7 +112,7 @@ app.post( '/post_receive', function ( req, res ) {
                     if ( candidates.length ) {
                         fetchIfExists( candidates );
                     } else {
-                        res.send( "Wrong door!", 404 );
+                        res.send( "Workspace for '" + repo + "' hasn't been checked out", 404 );
                     }
                 }
             });
@@ -109,27 +128,32 @@ app.post( '/post_receive', function ( req, res ) {
                 repoDir = repoBaseDir + "/" + repo;
                 fetchIfExists( [ repoDir, repoDir + ".git" ],
                     function( dir ) {
-                        checkout( repo, tag, function() {
+                        checkout( repo, dir, tag, function( err ) {
                             var workspace = workBaseDir + "/" + repo + "." + tag,
                                 compiled = workspace + "/compiled";
-                            rimraf( compiled, function( err ) {
-                                if ( err ) {
-                                    res.send( err, 500 );
-                                } else {
-                                    fs.mkdir( compiled, function( err ) {
-                                        if ( err ) {
-                                            res.send( err, 500 );
-                                        } else {
-                                            res.send( "OK" );
-                                        }
-                                    });
-                                }
-                            });
+
+                            if ( err ) {
+                                res.send( err, 500 );
+                            } else {
+                                rimraf( compiled, function( err ) {
+                                    if ( err ) {
+                                        res.send( err, 500 );
+                                    } else {
+                                        fs.mkdir( compiled, function( err ) {
+                                            if ( err ) {
+                                                res.send( err, 500 );
+                                            } else {
+                                                res.send( "OK" );
+                                            }
+                                        });
+                                    }
+                                });
+                            }
                         })
                     }
                 );
             } else {
-                res.send( "Wrong door!", 404 );
+                res.send( "Payload is missing information", 404 );
             }
         } catch( e ) {
             res.send( e, 500 );
