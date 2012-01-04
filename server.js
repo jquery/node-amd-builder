@@ -168,7 +168,7 @@ app.get( '/:repo/:tag/make', function ( req, res ) {
     config.optimize = optimize;
 
     path.exists( dstFile, function ( exists ) {
-        if ( false ) {
+        if ( exists ) {
             res.download( dstFile, path.basename( dstFile ) );
         } else {
             try {
