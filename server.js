@@ -171,7 +171,7 @@ app.get( '/:repo/:tag/make', function ( req, res ) {
         } else {
             try {
 
-				requirejs.optimize( config, function (buildResponse) {
+				requirejs.optimize( config, function ( buildResponse ) {
 					//buildResponse is just a text output of the modules
 					//included. Load the built file for the contents.
 					fs.readFile( config.out, 'utf8', function( err, contents ) {
