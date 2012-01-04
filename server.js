@@ -170,7 +170,6 @@ app.get( '/:repo/:tag/make', function ( req, res ) {
             res.download( dstFile, path.basename( dstFile ) );
         } else {
             try {
-
 				requirejs.optimize( config, function ( buildResponse ) {
 					//buildResponse is just a text output of the modules
 					//included. Load the built file for the contents.
