@@ -263,9 +263,10 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         baseUrl = path.normalize( wsDir + "/" + req.param( "baseUrl", "." ) ),
         shasum = crypto.createHash( 'sha1' ),
-        filename = getCompiledDirSync( req.params.repo, req.params.tag ) + "/deps-";
+        compileDir = getCompiledDirSync( req.params.repo, req.params.tag ),
+        filename = compileDir + "/deps-";
 
-    async.series([
+    async.waterfall([
         function( callback ) {
             // If no name is provided, scan the baseUrl for js files and return the dep map for all JS objects in baseUrl
             if ( names.length ) {
@@ -288,11 +289,19 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
             shasum.update( names.join( "," ) );
             filename += shasum.digest( 'hex' ) + ".json";
 
-            path.exists( filename,
-                function( exists ) {
-                    if ( exists ){
-                        res.sendfile( filename );
-                    } else {
+            path.exists( filename, function( exists ) {
+                callback( null, exists )
+            });
+        },
+        function( exists, callback ) {
+            if ( exists ){
+                res.sendfile( filename );
+            } else {
+                async.series([
+                    function( callback ) {
+                        fs.mkdir( compileDir, callback );
+                    },
+                    function( callback ) {
                         requirejs_traceFiles.tools.traceFiles( {
                                 baseUrl: baseUrl,
                                 modules: names.map( function( name ) { return { name: name } } )
@@ -320,10 +329,15 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
                             }
                         );
                     }
-                }
-            )
+                ])
+            }
         }
-    ]);
+    ],
+    function( err ) {
+        if ( err ) {
+            res.send( err, 500 );
+        }
+    });
 });
 
 console.log( "listening on port:", httpPort );
