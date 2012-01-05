@@ -298,10 +298,16 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
                 res.sendfile( filename );
             } else {
                 async.series([
-                    function( callback ) {
-                        fs.mkdir( compileDir, callback );
+                    function( cb ) {
+                        fs.mkdir( compileDir, function( err ) {
+                            if ( err && err.code != "EEXIST" ) {
+                                cb( err );
+                            } else {
+                                cb( null );
+                            }
+                        });
                     },
-                    function( callback ) {
+                    function( cb ) {
                         requirejs_traceFiles.tools.traceFiles( {
                                 baseUrl: baseUrl,
                                 modules: names.map( function( name ) { return { name: name } } )
@@ -329,7 +335,14 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
                             }
                         );
                     }
-                ])
+                ],
+                function( err ) {
+                    if ( err ) {
+                        res.send( err, 500 );
+                    } else {
+                        callback( null );
+                    }
+                })
             }
         }
     ],
