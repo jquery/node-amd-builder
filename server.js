@@ -5,12 +5,13 @@ var express = require( 'express' ),
     async = require( 'async'),
     crypto = require( 'crypto' ),
     fs = require( 'fs' ),
-    rimraf = require( 'rimraf' ),
+    Git = require( './lib/git'),
     exec = require( 'child_process' ).exec,
     path = require( 'path' ),
     regexp = require( './lib/regexp' ),
 	requirejs = require( 'requirejs' ),
-    requirejs_traceFiles = require( './lib/r.js' );
+    requirejs_traceFiles = require( './lib/r.js' ),
+    rimraf = require( 'rimraf' );
 
 var httpPort = process.env.PORT || 8080,
     repoBaseDir = path.normalize( process.env.REPO_BASE_DIR ),
@@ -30,16 +31,9 @@ app.get( '/', function ( req, res ) {
     res.send( "<h1 style='text-align: center; font-size: 120px;'>ZOMG JQM-BUILDER</h1>" );
 });
 
-function fetch( repo, callback ) {
-    exec( "git fetch",
-        {
-            encoding: 'utf8',
-            timeout: 0,
-            cwd: repo,
-            env: null
-        },
-        callback
-    );
+function fetch( repoDir, callback ) {
+    Git( repoDir );
+    Git.exec( [ "fetch" ], callback );
 }
 
 function checkout( repoName, repoDir, tag, force, callback ){
@@ -55,20 +49,13 @@ function checkout( repoName, repoDir, tag, force, callback ){
     }
 
     // Workspace
-    var wsDir  = workBaseDir + "/" + repoName + "." + tag;
+    var wsDir  = getWorkspaceDirSync( repoName, tag );
 
     path.exists( wsDir, function( exists ) {
         if ( exists || force ) {
             fs.mkdir( wsDir, function () {
-                exec( "git --work-tree=" + wsDir + " checkout -f " + tag,
-                    {
-                        encoding: 'utf8',
-                        timeout: 0,
-                        cwd: repoDir,
-                        env: null
-                    },
-                    callback
-                );
+                Git( repoDir, wsDir );
+                Git.exec( [ "checkout", "-f", tag ], callback );
             });
         } else {
             callback( "Worspace for " + repoName + "/" + tag + " has not been created" );
@@ -211,15 +198,13 @@ app.get( '/:repo/:tag/checkout', function ( req, res ) {
         },
         function( repoDir, callback ) {
             checkout( repoName, repoDir, tag, callback );
-        },
-        function( stdout, stderr, callback ) {
-            res.send( stdout );
-            callback( null );
         }
 
     ], function( err ) {
         if ( err ) {
             res.send( err, 500 );
+        } else {
+            res.send( "OK" );
         }
     });
 });
