@@ -93,18 +93,19 @@ function getCompiledDirSync( repo, tag ) {
 
 app.get( '/:repo/fetch', function ( req, res ) {
     var repo = repoBaseDir + "/" + req.params.repo;
-
-    fetch( repo,
-        function ( error, stdout, stderr ) {
-            //console.log('stdout: ' + stdout);
-            //console.log('stderr: ' + stderr);
-            if ( error !== null ) {
-                res.send( error, 500 );
-            } else {
-                res.send( stdout );
-            }
+    async.waterfall([
+        function( callback ) {
+            getRepoDir( req.params.repo, callback )
+        },
+        fetch,
+        function ( out ) {
+            res.send( out );
         }
-    );
+    ], function( err ) {
+        if ( err ) {
+            res.send( err, 500 );
+        }
+    })
 });
 
 app.post( '/post_receive', function ( req, res ) {
@@ -148,10 +149,10 @@ app.post( '/post_receive', function ( req, res ) {
                         repoDir = dir;
                         fetch( dir, callback );
                     },
-                    function( stdout, stderr, callback ) {
+                    function( out, callback ) {
                         checkout( repoName, repoDir, tag, callback );
                     },
-                    function( stdout, stderr, callback ) {
+                    function( out, callback ) {
                         var compiled = getCompiledDirSync( repoName, tag );
                         async.series([
                             function( cb ) {
@@ -160,12 +161,11 @@ app.post( '/post_receive', function ( req, res ) {
                             function( cb ) {
                                 fs.mkdir( compiled, cb );
                             }
-
                         ], function( err, results ) {
                             if ( err )  {
                                 callback( err );
                             } else {
-                                callback( null, stdout );
+                                callback( null, out );
                             }
                         });
                     }
