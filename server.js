@@ -96,9 +96,12 @@ function getRepoDir( repo, callback ) {
     getFirstExistingDir( [ repoDir, repoDir + ".git" ], callback );
 }
 
-function getWorkspaceDir( repo, tag, callback ) {
-    var workspaceDir = workBaseDir + "/" + repo + "." + tag;
-    callback( null, workspaceDir );
+function getWorkspaceDirSync( repo, tag ) {
+    return workBaseDir + "/" + repo + "." + tag;
+}
+
+function getCompiledDirSync( repo, tag ) {
+    return getWorkspaceDirSync( repo, tag ) + "/__compiled";
 }
 
 app.get( '/:repo/fetch', function ( req, res ) {
@@ -119,7 +122,7 @@ app.get( '/:repo/fetch', function ( req, res ) {
 
 app.post( '/post_receive', function ( req, res ) {
     var payload = req.body.payload,
-        repo, repoDir, tag,
+        repoName, repoDir, tag,
         fetchIfExists = function( candidates, callback ) {
             var dir = candidates.shift();
             path.exists( dir , function( exists ) {
@@ -137,7 +140,7 @@ app.post( '/post_receive', function ( req, res ) {
                     if ( candidates.length ) {
                         fetchIfExists( candidates );
                     } else {
-                        res.send( "Workspace for '" + repo + "' hasn't been checked out", 404 );
+                        res.send( "Workspace for '" + repoName + "' hasn't been checked out", 404 );
                     }
                 }
             });
@@ -146,24 +149,23 @@ app.post( '/post_receive', function ( req, res ) {
     if ( payload ) {
         try {
             payload = JSON.parse( payload );
-            repo = payload.repository.name;
+            repoName = payload.repository.name;
             tag = payload.ref.split( "/" ).pop();
 
             if ( payload.repository && payload.repository.name ) {
                 async.waterfall([
                     function( callback ){
-                        getRepoDir( repo, callback );
+                        getRepoDir( repoName, callback );
                     },
                     function( dir, callback ) {
                         repoDir = dir;
                         fetch( dir, callback );
                     },
                     function( stdout, stderr, callback ) {
-                        checkout( repo, repoDir, tag, callback );
+                        checkout( repoName, repoDir, tag, callback );
                     },
                     function( stdout, stderr, callback ) {
-                        var workspace = workBaseDir + "/" + repo + "." + tag,
-                            compiled = workspace + "/compiled";
+                        var compiled = getCompiledDirSync( repoName, tag );
                         async.series([
                             function( cb ) {
                                 rimraf( compiled, cb );
@@ -231,7 +233,7 @@ app.get( '/:repo/:tag/make', function ( req, res ) {
         pragmasOnSave = JSON.parse( req.param( "pragmasOnSave", "{}" ) ),
         name = path.basename( req.param( "name", req.params.repo ), ".js" ),
         shasum = crypto.createHash( 'sha1' ),
-        wsDir   = workBaseDir + "/" + req.params.repo + "." + req.params.tag,
+        wsDir   = getWorkspaceDirSync( req.params.repo, req.params.tag ),
         dstDir, dstFile;
 
 	//Set up the config passed to the optimizer
@@ -244,7 +246,7 @@ app.get( '/:repo/:tag/make', function ( req, res ) {
 
     shasum.update( JSON.stringify( config ) );
 
-    dstDir = wsDir + "/compiled/" + shasum.digest( 'hex' );
+    dstDir = getCompiledDirSync( req.params.repo, req.params.tag ) + shasum.digest( 'hex' );
     dstFile = dstDir + "/" + name + (optimize !== "none" ? ".min" : "") + ".js";
 
     config.out = dstFile;
@@ -271,49 +273,72 @@ app.get( '/:repo/:tag/make', function ( req, res ) {
 });
 
 app.get( '/:repo/:tag/dependencies', function ( req, res ) {
-    var wsDir   = workBaseDir + "/" + req.params.repo + "." + req.params.tag,
+    var wsDir = getWorkspaceDirSync( req.params.repo, req.params.tag ),
+        names = req.param( "names", "" ).split( "," ).filter( function(name) {return !!name} ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
-        names = req.param( "names", req.params.repo ).split( "," ).sort(),
         baseUrl = path.normalize( wsDir + "/" + req.param( "baseUrl", "." ) ),
         shasum = crypto.createHash( 'sha1' ),
-        filename = wsDir + "/deps-";
+        filename = getCompiledDirSync( req.params.repo, req.params.tag ) + "/deps-";
 
-    // Generate a sha on the sorted names
-    shasum.update( names.join( "," ) );
-    filename += shasum.digest( 'hex' ) + ".json";
+    async.series([
+        function( callback ) {
+            // If no name is provided, scan the baseUrl for js files and return the dep map for all JS objects in baseUrl
+            if ( names.length ) {
+                callback( null );
+            } else {
+                fs.readdir(baseUrl, function( err, files ) {
+                    if ( err ) {
+                        callback( err );
+                    } else {
+                        files = files.filter( function( file ) { return path.extname( file ) === ".js" } );
+                        names = files.map( function( file ) { return path.basename( file, ".js" ) } );
 
-    path.exists( filename, function( exists ) {
-        if ( exists ){
-            res.sendfile( filename );
-        } else {
-            requirejs_traceFiles.tools.traceFiles( {
-                    baseUrl: baseUrl,
-                    modules: names.map( function( name ) { return { name: name } } )
-                },
-                function( deps ) {
-                    // Walk through the dep map and remove baseUrl and js extention
-                    var module,
-                        baseUrlRE = new RegExp( "^" + regexp.escapeString( baseUrl + "/") ),
-                        jsExtRE = new RegExp( regexp.escapeString( ".js" ) + "$" );
-                    for ( module in deps ) {
-                        deps[ module ].files.pop();
-                        deps[ module ].deps = deps[ module ].files.map(
-                            function( file ) {
-                                return file.replace( baseUrlRE, "" ).replace( jsExtRE, "" );
+                        callback( null );
+                    }
+                });
+            }
+        },
+        function( callback ) {
+            // Generate a sha on the sorted names
+            shasum.update( names.join( "," ) );
+            filename += shasum.digest( 'hex' ) + ".json";
+
+            path.exists( filename,
+                function( exists ) {
+                    if ( exists ){
+                        res.sendfile( filename );
+                    } else {
+                        requirejs_traceFiles.tools.traceFiles( {
+                                baseUrl: baseUrl,
+                                modules: names.map( function( name ) { return { name: name } } )
+                            },
+                            function( deps ) {
+                                // Walk through the dep map and remove baseUrl and js extention
+                                var module,
+                                    baseUrlRE = new RegExp( "^" + regexp.escapeString( baseUrl + "/") ),
+                                    jsExtRE = new RegExp( regexp.escapeString( ".js" ) + "$" );
+                                for ( module in deps ) {
+                                    deps[ module ].files.pop();
+                                    deps[ module ].deps = deps[ module ].files.map(
+                                        function( file ) {
+                                            return file.replace( baseUrlRE, "" ).replace( jsExtRE, "" );
+                                        }
+                                    );
+                                    delete deps[ module ].files;
+                                }
+                                fs.writeFile( filename, JSON.stringify( deps ),
+                                    function (err) {
+                                        if (err) throw err;
+                                    }
+                                );
+                                res.json( deps );
                             }
                         );
-                        delete deps[ module ].files;
                     }
-                    fs.writeFile( filename, JSON.stringify( deps ),
-                        function (err) {
-                            if (err) throw err;
-                        }
-                    );
-                    res.json( deps );
                 }
-            );
+            )
         }
-    });
+    ]);
 });
 
 console.log( "listening on port:", httpPort );
