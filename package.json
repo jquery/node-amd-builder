@@ -1,7 +1,7 @@
 {
 	"name": "amd-builder",
-	"description": "A service that builds jQM packages",
-	"version": "0.1.0",
+	"description": "A service that builds bundles from AMD projects resources",
+	"version": "0.1.1",
 	"keywords": [ "jquery mobile", "amd", "build"],
 	"maintainers": [{
 		"name": "Ghislain Seguin",
