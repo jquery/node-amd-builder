@@ -295,6 +295,7 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
         },
         function( exists, callback ) {
             if ( exists ){
+                res.header( "Access-Control-Allow-Origin", "*");
                 res.sendfile( filename );
             } else {
                 async.waterfall([
@@ -373,6 +374,7 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
                     },
                     function( deps, cb ){
                         fs.writeFile( filename, JSON.stringify( deps ), cb);
+                        res.header( "Access-Control-Allow-Origin", "*");
                         res.json( deps );
                     }
                 ],
