@@ -297,7 +297,7 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
             if ( exists ){
                 res.sendfile( filename );
             } else {
-                async.series([
+                async.waterfall([
                     function( cb ) {
                         fs.mkdir( compileDir, function( err ) {
                             if ( err && err.code != "EEXIST" ) {
@@ -313,27 +313,67 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
                                 modules: names.map( function( name ) { return { name: name } } )
                             },
                             function( deps ) {
-                                // Walk through the dep map and remove baseUrl and js extention
-                                var module,
-                                    baseUrlRE = new RegExp( "^" + regexp.escapeString( baseUrl + "/") ),
-                                    jsExtRE = new RegExp( regexp.escapeString( ".js" ) + "$" );
-                                for ( module in deps ) {
-                                    deps[ module ].files.pop();
-                                    deps[ module ].deps = deps[ module ].files.map(
-                                        function( file ) {
-                                            return file.replace( baseUrlRE, "" ).replace( jsExtRE, "" );
-                                        }
-                                    );
-                                    delete deps[ module ].files;
-                                }
-                                fs.writeFile( filename, JSON.stringify( deps ),
-                                    function (err) {
-                                        if (err) throw err;
-                                    }
-                                );
-                                res.json( deps );
+                                cb( null, deps );
                             }
                         );
+                    },
+                    function( deps, cb ) {
+                        // Walk through the dep map and remove baseUrl and js extension
+                        var module,
+                            modules = [],
+                            baseUrlRE = new RegExp( "^" + regexp.escapeString( baseUrl + "/") ),
+                            jsExtRE = new RegExp( regexp.escapeString( ".js" ) + "$" );
+                        for ( module in deps ) {
+                            modules.push( module );
+                            deps[ module ].files.pop();
+                            deps[ module ].deps = deps[ module ].files.map(
+                                function( file ) {
+                                    return file.replace( baseUrlRE, "" ).replace( jsExtRE, "" );
+                                }
+                            );
+                            delete deps[ module ].files;
+                        }
+
+                        async.forEach( modules,
+                            function( item, callback ) {
+                                async.waterfall([
+                                    function( next ) {
+                                        fs.readFile( path.join( baseUrl, item+".js" ), 'utf8', next );
+                                    },
+                                    function( data, next ) {
+                                        // grep for >description & label
+                                        var attributes = [ "description", "label" ];
+                                        attributes.forEach( function(attr) {
+                                            var attrMatchRE = new RegExp( "^.*" + regexp.escapeString( "//>>" + attr + ":") + ".*$", "m" ),
+                                                attrLabelRE = new RegExp( "^.*" + regexp.escapeString( "//>>" + attr + ":") + "\\s*", "m" ),
+                                                matches = data.match( attrMatchRE );
+                                            if ( matches && matches.length ) {
+                                                deps[ item ][ attr ] = matches[ 0 ].replace( attrLabelRE, "" ).trim();
+                                            }
+                                        });
+                                        next();
+                                    }
+                                ],
+                                function( err ){
+                                    if ( err ) {
+                                        res.send( err, 500 );
+                                    } else {
+                                        callback();
+                                    }
+                                });
+                            },
+                            function( err ) {
+                                if ( err ) {
+                                    cb( err );
+                                } else {
+                                    cb( null, deps );
+                                }
+                            }
+                        )
+                    },
+                    function( deps, cb ){
+                        fs.writeFile( filename, JSON.stringify( deps ), cb);
+                        res.json( deps );
                     }
                 ],
                 function( err ) {
