@@ -200,24 +200,7 @@ app.post( '/post_receive', function ( req, res ) {
                     },
                     function( out, callback ) {
                         checkout( repoName, repoDir, ref, callback );
-                    }//,
-//                    function( out, callback ) {
-//                        var compiled = getCompiledDirSync( repoName, tag );
-//                        async.series([
-//                            function( cb ) {
-//                                rimraf( compiled, cb );
-//                            },
-//                            function( cb ) {
-//                                fs.mkdir( compiled, cb );
-//                            }
-//                        ], function( err, results ) {
-//                            if ( err )  {
-//                                callback( err );
-//                            } else {
-//                                callback( null, out );
-//                            }
-//                        });
-//                    }
+                    }
                 ],
                 function ( err, result ) {
                     if ( err ) {
