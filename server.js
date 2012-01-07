@@ -10,7 +10,7 @@ var express = require( 'express' ),
     path = require( 'path' ),
     regexp = require( './lib/regexp' ),
 	requirejs = require( 'requirejs' ),
-    requirejs_traceFiles = require( './lib/r.js' ),
+    requirejs_edge = require( './lib/r-edge.js' ),
     rimraf = require( 'rimraf' );
 
 var httpPort = process.env.PORT || 8080,
@@ -309,14 +309,21 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
                         });
                     },
                     function( cb ) {
-                        requirejs_traceFiles.tools.traceFiles( {
-                                baseUrl: baseUrl,
-                                modules: names.map( function( name ) { return { name: name } } )
-                            },
-                            function( deps ) {
-                                cb( null, deps );
-                            }
-                        );
+                        requirejs_edge.tools.useLib(function (require) {
+                            require(['parse'], function (parse) {
+                                cb( null, parse );
+                            })
+                        });
+                    },
+                    function( parse, cb ) {
+                        var deps = {};
+                        names.forEach(function (name) {
+                            var fileName = path.join( baseUrl, name + ".js" ),
+                                contents = fs.readFileSync( fileName, 'utf8' );
+                            deps[ name ] = {};
+                            deps[ name ].deps = parse.findDependencies( fileName, contents );
+                        });
+                        cb( null, deps );
                     },
                     function( deps, cb ) {
                         // Walk through the dep map and remove baseUrl and js extension
@@ -326,13 +333,6 @@ app.get( '/:repo/:tag/dependencies', function ( req, res ) {
                             jsExtRE = new RegExp( regexp.escapeString( ".js" ) + "$" );
                         for ( module in deps ) {
                             modules.push( module );
-                            deps[ module ].files.pop();
-                            deps[ module ].deps = deps[ module ].files.map(
-                                function( file ) {
-                                    return file.replace( baseUrlRE, "" ).replace( jsExtRE, "" );
-                                }
-                            );
-                            delete deps[ module ].files;
                         }
 
                         async.forEach( modules,
