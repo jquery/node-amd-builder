@@ -264,7 +264,9 @@ app.get( '/:repo/:ref/make', function ( req, res ) {
 	};
 
     shasum.update( JSON.stringify( config ) );
-    shasum.update( filter );
+    if ( filter ) {
+        shasum.update( filter );
+    }
 
     dstDir = path.join( getCompiledDirSync( req.params.repo, req.params.ref ), shasum.digest( 'hex' ) );
     dstFile = path.join( dstDir, name + (optimize !== "none" ? ".min" : "") + ".js" );
