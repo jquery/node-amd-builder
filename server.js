@@ -66,7 +66,7 @@ function cleanup( repo, ref, callback ) {
 
 }
 
-function checkout( repoName, repoDir, tag, force, callback ){
+function checkout( repoName, repoDir, ref, force, callback ){
     if ( typeof force === "function" ) {
         callback = force;
         force = false;
@@ -74,12 +74,12 @@ function checkout( repoName, repoDir, tag, force, callback ){
     if (!repoName) throw new Error( "No repo name specified" );
     if (!repoDir) throw new Error( "No repo dir specified" );
     if (!callback) throw new Error( "No callback passed to checkout()" );
-    if (!tag) {
-        tag = "master";
+    if (!ref) {
+        ref = "master";
     }
 
     // Workspace
-    var wsDir  = getWorkspaceDirSync( repoName, tag );
+    var wsDir  = getWorkspaceDirSync( repoName, ref );
 
     path.exists( wsDir, function( exists ) {
         if ( exists || force ) {
@@ -95,10 +95,10 @@ function checkout( repoName, repoDir, tag, force, callback ){
                 },
                 function( next ) {
                     Git( repoDir, wsDir );
-                    Git.exec( [ "checkout", "-f", tag ], next );
+                    Git.exec( [ "checkout", "-f", ref ], next );
                 },
                 function( next ) {
-                    cleanup( repoName, tag, next );
+                    cleanup( repoName, ref, next );
                 }
             ], function( err ) {
                 if ( err ) {
@@ -108,7 +108,7 @@ function checkout( repoName, repoDir, tag, force, callback ){
                 }
             });
         } else {
-            callback( "Worspace for " + repoName + "/" + tag + " has not been created" );
+            callback( "Worspace for " + repoName + "/" + ref + " has not been created" );
         }
     });
 }
@@ -133,12 +133,12 @@ function getRepoDir( repo, callback ) {
     getFirstExistingDir( [ repoDir, repoDir + ".git" ], callback );
 }
 
-function getWorkspaceDirSync( repo, tag ) {
-    return workBaseDir + "/" + repo + "." + tag;
+function getWorkspaceDirSync( repo, ref ) {
+    return workBaseDir + "/" + repo + "." + ref;
 }
 
-function getCompiledDirSync( repo, tag ) {
-    return getWorkspaceDirSync( repo, tag ) + "/__compiled";
+function getCompiledDirSync( repo, ref ) {
+    return getWorkspaceDirSync( repo, ref ) + "/__compiled";
 }
 
 app.get( '/:repo/fetch', function ( req, res ) {
@@ -159,7 +159,7 @@ app.get( '/:repo/fetch', function ( req, res ) {
 
 app.post( '/post_receive', function ( req, res ) {
     var payload = req.body.payload,
-        repoName, repoDir, tag,
+        repoName, repoDir, ref,
         fetchIfExists = function( candidates, callback ) {
             var dir = candidates.shift();
             path.exists( dir , function( exists ) {
@@ -187,7 +187,7 @@ app.post( '/post_receive', function ( req, res ) {
         try {
             payload = JSON.parse( payload );
             repoName = payload.repository.name;
-            tag = payload.ref.split( "/" ).pop();
+            ref = payload.ref.split( "/" ).pop();
 
             if ( payload.repository && payload.repository.name ) {
                 async.waterfall([
@@ -199,7 +199,7 @@ app.post( '/post_receive', function ( req, res ) {
                         fetch( dir, callback );
                     },
                     function( out, callback ) {
-                        checkout( repoName, repoDir, tag, callback );
+                        checkout( repoName, repoDir, ref, callback );
                     }//,
 //                    function( out, callback ) {
 //                        var compiled = getCompiledDirSync( repoName, tag );
@@ -237,16 +237,16 @@ app.post( '/post_receive', function ( req, res ) {
     }
 });
 
-app.get( '/:repo/:tag/checkout', function ( req, res ) {
+app.get( '/:repo/:ref/checkout', function ( req, res ) {
     var repoName = req.params.repo,
-        tag      = req.params.tag;
+        ref      = req.params.ref;
 
     async.waterfall([
         function( callback ) {
             getRepoDir( repoName, callback )
         },
         function( repoDir, callback ) {
-            checkout( repoName, repoDir, tag, callback );
+            checkout( repoName, repoDir, ref, callback );
         }
 
     ], function( err ) {
@@ -258,7 +258,7 @@ app.get( '/:repo/:tag/checkout', function ( req, res ) {
     });
 });
 
-app.get( '/:repo/:tag/make', function ( req, res ) {
+app.get( '/:repo/:ref/make', function ( req, res ) {
     var include = req.param( "include", "main" ).split( "," ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         optimize = req.param( "optimize", "none" ),
@@ -268,7 +268,7 @@ app.get( '/:repo/:tag/make', function ( req, res ) {
         name = path.basename( req.param( "name", req.params.repo ), ".js" ),
         filter = req.param( "filter" ),
         shasum = crypto.createHash( 'sha1' ),
-        wsDir   = getWorkspaceDirSync( req.params.repo, req.params.tag ),
+        wsDir   = getWorkspaceDirSync( req.params.repo, req.params.ref ),
         dstDir, dstFile;
 
     // var baseUrlFilters[baseUrl] = require(path.join(baseUrl, 'somemagicnameOrpackage.jsonEntry.js'));
@@ -283,7 +283,7 @@ app.get( '/:repo/:tag/make', function ( req, res ) {
     shasum.update( JSON.stringify( config ) );
     shasum.update( filter );
 
-    dstDir = path.join( getCompiledDirSync( req.params.repo, req.params.tag ), shasum.digest( 'hex' ) );
+    dstDir = path.join( getCompiledDirSync( req.params.repo, req.params.ref ), shasum.digest( 'hex' ) );
     dstFile = path.join( dstDir, name + (optimize !== "none" ? ".min" : "") + ".js" );
 
     config.out = dstFile;
@@ -320,13 +320,13 @@ app.get( '/:repo/:tag/make', function ( req, res ) {
     });
 });
 
-app.get( '/:repo/:tag/dependencies', function ( req, res ) {
-    var wsDir = getWorkspaceDirSync( req.params.repo, req.params.tag ),
+app.get( '/:repo/:ref/dependencies', function ( req, res ) {
+    var wsDir = getWorkspaceDirSync( req.params.repo, req.params.ref ),
         names = req.param( "names", "" ).split( "," ).filter( function(name) {return !!name} ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         baseUrl = path.normalize( path.join( wsDir, req.param( "baseUrl", "." ) ) ),
         shasum = crypto.createHash( 'sha1' ),
-        compileDir = getCompiledDirSync( req.params.repo, req.params.tag ),
+        compileDir = getCompiledDirSync( req.params.repo, req.params.ref ),
         filename = compileDir + "/deps-";
 
     async.waterfall([
