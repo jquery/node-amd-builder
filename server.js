@@ -129,16 +129,16 @@ function getFirstExistingDir( candidates, callback ) {
 }
 
 function getRepoDir( repo, callback ) {
-    var repoDir = repoBaseDir + "/" + repo;
+    var repoDir = path.join( repoBaseDir, repo );
     getFirstExistingDir( [ repoDir, repoDir + ".git" ], callback );
 }
 
 function getWorkspaceDirSync( repo, ref ) {
-    return workBaseDir + "/" + repo + "." + ref;
+    return path.join( workBaseDir, repo + "." + ref );
 }
 
 function getCompiledDirSync( repo, ref ) {
-    return getWorkspaceDirSync( repo, ref ) + "/__compiled";
+    return path.join( getWorkspaceDirSync( repo, ref ), "__compiled" );
 }
 
 app.get( '/:repo/fetch', function ( req, res ) {
