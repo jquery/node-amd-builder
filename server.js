@@ -276,6 +276,7 @@ app.get( '/:repo/:ref/make', function ( req, res ) {
 
     path.exists( dstFile, function ( exists ) {
         if ( exists ) {
+	        res.header( "Access-Control-Allow-Origin", "*");
             res.download( dstFile, path.basename( dstFile ) );
         } else {
             try {
@@ -299,6 +300,7 @@ app.get( '/:repo/:ref/make', function ( req, res ) {
 					});
 				});
 			} catch ( e ) {
+	            res.header( "Access-Control-Allow-Origin", "*");
 				res.send( e.toString(), 500 );
 			}
         }
