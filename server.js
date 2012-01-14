@@ -392,16 +392,15 @@ app.get( '/:repo/:ref/dependencies', function ( req, res ) {
                                         fs.readFile( path.join( baseUrl, item+".js" ), 'utf8', next );
                                     },
                                     function( data, next ) {
-                                        // grep for >description & label
-                                        var attributes = [ "description", "label" ];
-                                        attributes.forEach( function(attr) {
-                                            var attrMatchRE = new RegExp( "^.*" + regexp.escapeString( "//>>" + attr + ":") + ".*$", "m" ),
-                                                attrLabelRE = new RegExp( "^.*" + regexp.escapeString( "//>>" + attr + ":") + "\\s*", "m" ),
-                                                matches = data.match( attrMatchRE );
-                                            if ( matches && matches.length ) {
-                                                deps[ item ][ attr ] = matches[ 0 ].replace( attrLabelRE, "" ).trim();
-                                            }
-                                        });
+										var attrMatchRE = /^.*\/\/>>\s*\w+\s*:.*$/mg,
+											matches = data.match( attrMatchRE );
+										if ( matches && matches.length ) {
+											matches.forEach( function( meta ) {
+                                                var attr = meta.replace( /^.*\/\/>>\s*(\w+)\s*:.*$/, "$1" );
+												var attrLabelRE = new RegExp( "^.*" + regexp.escapeString( "//>>" + attr + ":") + "\\s*", "m" );
+												deps[ item ][ attr ] = meta.replace( attrLabelRE, "" ).trim();
+											});
+										}
                                         next();
                                     }
                                 ],
