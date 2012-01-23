@@ -11,11 +11,14 @@ var express = require( 'express' ),
     regexp = require( './lib/regexp' ),
 	requirejs = require( 'requirejs' ),
     requirejs_edge = require( './lib/r-edge.js' ),
-    rimraf = require( 'rimraf' );
+    rimraf = require( 'rimraf' ),
+    url = require( 'url' );
 
 var httpPort = process.env.PORT || 8080,
     repoBaseDir = path.normalize( process.env.REPO_BASE_DIR ),
     workBaseDir = path.normalize ( process.env.WORK_BASE_DIR ),
+//    configFilename = "./server-config.json",
+//    config = {},
     filters = {};
 
 app.configure('development', function(){
@@ -28,6 +31,13 @@ app.configure('production', function(){
 
 app.use(express.bodyParser());
 
+//function loadConfig() {
+//    config = JSON.parse( fs.readFileSync( configFilename, 'utf8' ) );
+//}
+//
+//loadConfig();
+//fs.watchFile( configFilename, { persistent: true, interval: 500 }, loadConfig);
+
 app.get( '/', function ( req, res ) {
     res.send( "<h1 style='text-align: center; font-size: 120px;'>ZOMG JQM-BUILDER</h1>" );
 });
@@ -37,8 +47,8 @@ function fetch( repoDir, callback ) {
     Git.exec( [ "fetch" ], callback );
 }
 
-function cleanup( repo, ref, callback ) {
-    var compiled = getCompiledDirSync( repo, ref );
+function cleanup( project, repo, ref, callback ) {
+    var compiled = getCompiledDirSync( project, repo, ref );
 
     async.series([
         function( next ) {
@@ -48,7 +58,7 @@ function cleanup( repo, ref, callback ) {
             fs.mkdir( compiled, next );
         },
         function( next ) {
-            var wsDir = getWorkspaceDirSync( repo, ref ),
+            var wsDir = getWorkspaceDirSync( project, repo, ref ),
                 filterPath;
             for ( filterPath in filters[ wsDir ] ) {
                 delete require.cache[ filterPath ];
@@ -60,32 +70,26 @@ function cleanup( repo, ref, callback ) {
         if ( err )  {
             callback( err );
         } else {
-            callback( null );
+            callback();
         }
     });
 
 }
 
-function checkout( repoName, repoDir, ref, force, callback ){
+function checkout( project, repo, ref, force, callback ){
     if ( typeof force === "function" ) {
         callback = force;
         force = false;
     }
-    if (!repoName) throw new Error( "No repo name specified" );
-    if (!repoDir) throw new Error( "No repo dir specified" );
-    if (!callback) throw new Error( "No callback passed to checkout()" );
-    if (!ref) {
-        ref = "master";
-    }
 
     // Workspace
-    var wsDir  = getWorkspaceDirSync( repoName, ref );
+    var workDir  = getWorkspaceDirSync( project, repo, ref );
 
-    path.exists( wsDir, function( exists ) {
+    path.exists( workDir, function( exists ) {
         if ( exists || force ) {
-            async.series([
+            async.waterfall([
                 function( next ) {
-                    fs.mkdir( wsDir, function( err ) {
+                    fs.mkdir( workDir, function( err ) {
                         if ( err && err.code != "EEXIST" ) {
                             next( err );
                         } else {
@@ -94,11 +98,14 @@ function checkout( repoName, repoDir, ref, force, callback ){
                     });
                 },
                 function( next ) {
-                    Git( repoDir, wsDir );
+                    getRepoDir( project, repo, next )
+                },
+                function( dir, next ) {
+                    Git( dir, workDir );
                     Git.exec( [ "checkout", "-f", ref ], next );
                 },
-                function( next ) {
-                    cleanup( repoName, ref, next );
+                function( out, next ) {
+                    cleanup( project, repo, ref, next );
                 }
             ], function( err ) {
                 if ( err ) {
@@ -108,7 +115,7 @@ function checkout( repoName, repoDir, ref, force, callback ){
                 }
             });
         } else {
-            callback( "Worspace for " + repoName + "/" + ref + " has not been created" );
+            callback( "Worspace for " + repo + "/" + ref + " has not been created" );
         }
     });
 }
@@ -128,38 +135,44 @@ function getFirstExistingDir( candidates, callback ) {
     });
 }
 
-function getRepoDir( repo, callback ) {
-    var repoDir = path.join( repoBaseDir, repo );
+function getProjectSpecificDirSync( baseDir, project ) {
+    if ( project ) {
+        baseDir = path.join( baseDir, project );
+    }
+    return baseDir;
+}
+
+function getRepoBaseDirSync( project ) {
+    return getProjectSpecificDirSync( repoBaseDir, project );
+}
+
+function getWorkspaceBaseDirSync( project ) {
+    return getProjectSpecificDirSync( workBaseDir, project );
+}
+
+function getRepoDir( project, repo, callback ) {
+    var repoDir = path.join( getRepoBaseDirSync( project ), repo );
     getFirstExistingDir( [ repoDir, repoDir + ".git" ], callback );
 }
 
-function getWorkspaceDirSync( repo, ref ) {
-    return path.join( workBaseDir, repo + "." + ref );
+function getWorkspaceDirSync( project, repo, ref ) {
+    var workspaceDir;
+    if ( project ) {
+        workspaceDir = path.join( getWorkspaceBaseDirSync( project ), ref, repo )
+    } else {
+        path.join( repo, ref )
+    }
+
+    return workspaceDir;
 }
 
-function getCompiledDirSync( repo, ref ) {
-    return path.join( getWorkspaceDirSync( repo, ref ), "__compiled" );
+function getCompiledDirSync( project, repo, ref ) {
+    return path.join( getWorkspaceDirSync( project, repo, ref ), "__compiled" );
 }
-
-app.get( '/:repo/fetch', function ( req, res ) {
-    async.waterfall([
-        function( callback ) {
-            getRepoDir( req.params.repo, callback )
-        },
-        fetch,
-        function ( out ) {
-            res.send( out );
-        }
-    ], function( err ) {
-        if ( err ) {
-            res.send( err, 500 );
-        }
-    })
-});
 
 app.post( '/post_receive', function ( req, res ) {
     var payload = req.body.payload,
-        repoName, repoDir, ref,
+        project, repoName, repoUrl, ref,
         fetchIfExists = function( candidates, callback ) {
             var dir = candidates.shift();
             path.exists( dir , function( exists ) {
@@ -187,19 +200,20 @@ app.post( '/post_receive', function ( req, res ) {
         try {
             payload = JSON.parse( payload );
             repoName = payload.repository.name;
+            repoUrl = url.parse( payload.repository.url );
+            project = path.dirname( repoUrl.path ).substring( 1 );
             ref = payload.ref.split( "/" ).pop();
 
-            if ( payload.repository && payload.repository.name ) {
+            if ( project && repoName && ref ) {
                 async.waterfall([
-                    function( callback ){
-                        getRepoDir( repoName, callback );
+                    function( next ){
+                        getRepoDir( project, repoName, next );
                     },
-                    function( dir, callback ) {
-                        repoDir = dir;
-                        fetch( dir, callback );
+                    function( dir, next ) {
+                        fetch( dir, next );
                     },
-                    function( out, callback ) {
-                        checkout( repoName, repoDir, ref, callback );
+                    function( out, next ) {
+                        checkout( project, repoName, ref, next );
                     }
                 ],
                 function ( err, result ) {
@@ -220,38 +234,49 @@ app.post( '/post_receive', function ( req, res ) {
     }
 });
 
-app.get( '/:repo/:ref/checkout', function ( req, res ) {
-    var repoName = req.params.repo,
-        ref      = req.params.ref;
-
+app.get( '/:project/:repo/fetch', function ( req, res ) {
     async.waterfall([
         function( callback ) {
-            getRepoDir( repoName, callback )
+            getRepoDir( req.params.project, req.params.repo, callback )
         },
-        function( repoDir, callback ) {
-            checkout( repoName, repoDir, ref, callback );
+        fetch,
+        function ( out ) {
+            res.send( out );
         }
-
     ], function( err ) {
         if ( err ) {
             res.send( err, 500 );
-        } else {
-            res.send( "OK" );
         }
-    });
+    })
 });
 
-app.get( '/:repo/:ref/make', function ( req, res ) {
+app.get( '/:project/:repo/:ref/checkout', function ( req, res ) {
+    var project = req.params.project,
+        repo    = req.params.repo,
+        ref     = req.params.ref;
+
+    checkout( project, repo, ref,
+        function( err ) {
+            if ( err ) {
+                res.send( err, 500 );
+            } else {
+                res.send( "OK" );
+            }
+        }
+    );
+});
+
+app.get( '/:project/:repo/:ref/make', function ( req, res ) {
     var include = req.param( "include", "main" ).split( "," ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         optimize = req.param( "optimize", "none" ),
         baseUrl = req.param( "baseUrl", "." ),
         pragmas = JSON.parse( req.param( "pragmas", "{}" ) ),
         pragmasOnSave = JSON.parse( req.param( "pragmasOnSave", "{}" ) ),
-        name = path.basename( req.param( "name", req.params.repo ), ".js" ),
+        name = path.basename( req.param( "name", req.params.repo || req.params.project ), ".js" ),
         filter = req.param( "filter" ),
         shasum = crypto.createHash( 'sha1' ),
-        wsDir   = getWorkspaceDirSync( req.params.repo, req.params.ref ),
+        wsDir   = getWorkspaceDirSync( req.params.project, req.params.repo, req.params.ref ),
         dstDir, dstFile;
 
     // var baseUrlFilters[baseUrl] = require(path.join(baseUrl, 'somemagicnameOrpackage.jsonEntry.js'));
@@ -268,7 +293,7 @@ app.get( '/:repo/:ref/make', function ( req, res ) {
         shasum.update( filter );
     }
 
-    dstDir = path.join( getCompiledDirSync( req.params.repo, req.params.ref ), shasum.digest( 'hex' ) );
+    dstDir = path.join( getCompiledDirSync( req.params.project, req.params.repo, req.params.ref ), shasum.digest( 'hex' ) );
     dstFile = path.join( dstDir, name + (optimize !== "none" ? ".min" : "") + ".js" );
 
     config.out = dstFile;
@@ -307,13 +332,13 @@ app.get( '/:repo/:ref/make', function ( req, res ) {
     });
 });
 
-app.get( '/:repo/:ref/dependencies', function ( req, res ) {
-    var wsDir = getWorkspaceDirSync( req.params.repo, req.params.ref ),
+app.get( '/:project/:repo/:ref/dependencies', function ( req, res ) {
+    var wsDir = getWorkspaceDirSync( req.params.project, req.params.repo, req.params.ref ),
         names = req.param( "names", "" ).split( "," ).filter( function(name) {return !!name} ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         baseUrl = path.normalize( path.join( wsDir, req.param( "baseUrl", "." ) ) ),
         shasum = crypto.createHash( 'sha1' ),
-        compileDir = getCompiledDirSync( req.params.repo, req.params.ref ),
+        compileDir = getCompiledDirSync( req.params.project, req.params.repo, req.params.ref ),
         filename = compileDir + "/deps-";
 
     async.waterfall([
