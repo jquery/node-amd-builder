@@ -10,9 +10,7 @@ var express = require( 'express' ),
     path = require( 'path' ),
     regexp = require( './lib/regexp' ),
 	requirejs = require( 'requirejs' ),
-    requirejs_edge = require( './lib/r-edge.js' ),
-    rimraf = require( 'rimraf' ),
-    url = require( 'url' );
+    rimraf = require( 'rimraf' );
 
 var httpPort = process.env.PORT || 8080,
     repoBaseDir = path.normalize( process.env.REPO_BASE_DIR ),
@@ -384,7 +382,7 @@ app.get( '/:project/:repo/:ref/dependencies', function ( req, res ) {
                         });
                     },
                     function( cb ) {
-                        requirejs_edge.tools.useLib(function (require) {
+                        requirejs.tools.useLib(function (require) {
                             require(['parse'], function (parse) {
                                 cb( null, parse );
                             })
