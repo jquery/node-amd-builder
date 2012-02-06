@@ -34,3 +34,7 @@ URL arguments are:
  - ```include```: A comma separated list of modules to include in the bundle
  - ```exclude```: A comma separated list of modules to exclude from the bundle
  - ```optimize```: "none" or "uglify"
+
+## License
+
+Copyright (c) 2012, Ghislain Seguin (MIT License)
