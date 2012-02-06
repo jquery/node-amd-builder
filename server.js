@@ -264,14 +264,14 @@ app.get( '/v1/:project/:repo/:ref', function ( req, res ) {
     );
 });
 
-app.get( '/v1/bundle/:project/:repo/:ref', function ( req, res ) {
+app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
     var include = req.param( "include", "main" ).split( "," ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         optimize = req.param( "optimize", "none" ),
         baseUrl = req.param( "baseUrl", "." ),
         pragmas = JSON.parse( req.param( "pragmas", "{}" ) ),
         pragmasOnSave = JSON.parse( req.param( "pragmasOnSave", "{}" ) ),
-        name = path.basename( req.param( "name", req.params.repo || req.params.project ), ".js" ),
+        name = req.params.name || ( req.params.repo + ".js" ),
         filter = req.param( "filter" ),
         shasum = crypto.createHash( 'sha1' ),
         wsDir   = getWorkspaceDirSync( req.params.project, req.params.repo, req.params.ref ),
@@ -300,7 +300,7 @@ app.get( '/v1/bundle/:project/:repo/:ref', function ( req, res ) {
     path.exists( dstFile, function ( exists ) {
         if ( exists ) {
 	        res.header( "Access-Control-Allow-Origin", "*");
-            res.download( dstFile, path.basename( dstFile ) );
+            res.download( dstFile, name );
         } else {
             try {
 				requirejs.optimize( config, function ( buildResponse ) {
@@ -317,7 +317,7 @@ app.get( '/v1/bundle/:project/:repo/:ref', function ( req, res ) {
                         fs.writeFile( config.out, contents, 'utf8',
                             function( err ) {
                                 if ( err ) throw err;
-                                res.send( contents );
+                                res.download( config.out, name );
                             }
                         );
 					});
