@@ -232,7 +232,7 @@ app.post( '/post_receive', function ( req, res ) {
     }
 });
 
-app.get( '/:project/:repo/fetch', function ( req, res ) {
+app.get( '/v1/:project/:repo', function ( req, res ) {
     async.waterfall([
         function( callback ) {
             getRepoDir( req.params.project, req.params.repo, callback )
@@ -248,7 +248,7 @@ app.get( '/:project/:repo/fetch', function ( req, res ) {
     })
 });
 
-app.get( '/:project/:repo/:ref/checkout', function ( req, res ) {
+app.get( '/v1/:project/:repo/:ref', function ( req, res ) {
     var project = req.params.project,
         repo    = req.params.repo,
         ref     = req.params.ref;
@@ -264,7 +264,7 @@ app.get( '/:project/:repo/:ref/checkout', function ( req, res ) {
     );
 });
 
-app.get( '/:project/:repo/:ref/make', function ( req, res ) {
+app.get( '/v1/bundle/:project/:repo/:ref', function ( req, res ) {
     var include = req.param( "include", "main" ).split( "," ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         optimize = req.param( "optimize", "none" ),
@@ -330,7 +330,7 @@ app.get( '/:project/:repo/:ref/make', function ( req, res ) {
     });
 });
 
-app.get( '/:project/:repo/:ref/dependencies', function ( req, res ) {
+app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
     var wsDir = getWorkspaceDirSync( req.params.project, req.params.repo, req.params.ref ),
         names = req.param( "names", "" ).split( "," ).filter( function(name) {return !!name} ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),

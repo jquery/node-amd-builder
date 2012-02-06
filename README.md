@@ -3,16 +3,18 @@
 This project aims at providing a NodeJS service to build bundles out of AMD projects in a git repository. This was developed to help jQuery Mobile build the bundle builder.
 Initial checkout as well as workspace creation have to be done manually.
 
-## API
+## API v1
 
-### /{repo}/fetch
+### /v1/{project}/{repo}
 
 Fetch the latest version of the repo from the default remote.
 
-### /{repo}/{ref}/checkout
-Force checkout the ref into the {repo}.{ref} workspace if it exists.
+### /v1/{project}/{repo}/{ref}
 
-### /{repo}/{ref}/dependencies
+Force checkout the ref into the {project}/{ref}/{repo} workspace if it exists.
+
+### /v1/dependencies/{project}/{repo}/{ref}
+
 Traces 1st level dependencies.
 
 URL arguments are:
@@ -20,7 +22,7 @@ URL arguments are:
  - ```baseUrl```: The baseUrl for module name to file resolution
  - ```names```: A comma separated list of modules to include in the dependency map
 
-### /{repo}/{ref}/make
+### /v1/bundle/{project}/{repo}/{ref}
 
 Builds a bundle for this repository's ref
 
