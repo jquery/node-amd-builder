@@ -22,7 +22,9 @@ URL arguments are:
  - ```baseUrl```: The baseUrl for module name to file resolution
  - ```names```: A comma separated list of modules to include in the dependency map
 
-### /v1/bundle/{project}/{repo}/{ref}
+### /v1/bundle/{project}/{repo}/{ref}/{name}?
+
+```name``` is the name of the file generated it defaults to ```repo```.js
 
 Builds a bundle for this repository's ref
 
