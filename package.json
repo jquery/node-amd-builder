@@ -16,11 +16,12 @@
 		"url": "node@amd-builder.no.de:repo"
 	}],
 	"dependencies": {
-    "async": "latest",
-		"express": "2.5.2",
-		"request": "latest",
-    "requirejs": "latest",
-    "rimraf": "latest"
+        "async": "latest",
+	    "express": "2.5.2",
+        "node-promise": "latest",
+	    "request": "latest",
+        "requirejs": "latest",
+        "rimraf": "latest"
 	},
 	"scripts": {
 		"start": "REPO_BASE_DIR=/home/node/repositories WORK_BASE_DIR=/home/node/src node server.js"

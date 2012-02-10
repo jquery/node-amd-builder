@@ -8,6 +8,7 @@ var express = require( 'express' ),
     Git = require( './lib/git'),
     exec = require( 'child_process' ).exec,
     path = require( 'path' ),
+    Promise = require( 'node-promise').Promise,
     regexp = require( './lib/regexp' ),
 	requirejs = require( 'requirejs' ),
     rimraf = require( 'rimraf' );
@@ -15,9 +16,8 @@ var express = require( 'express' ),
 var httpPort = process.env.PORT || 8080,
     repoBaseDir = path.normalize( process.env.REPO_BASE_DIR ),
     workBaseDir = path.normalize ( process.env.WORK_BASE_DIR ),
-//    configFilename = "./server-config.json",
-//    config = {},
-    filters = {};
+    filters = {},
+    bundlePromises = {};
 
 app.configure('development', function(){
     app.use( express.errorHandler({ dumpExceptions: true, showStack: true }) );
@@ -271,17 +271,18 @@ app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
         baseUrl = req.param( "baseUrl", "." ),
         pragmas = JSON.parse( req.param( "pragmas", "{}" ) ),
         pragmasOnSave = JSON.parse( req.param( "pragmasOnSave", "{}" ) ),
-        name = req.params.name || ( req.params.repo + ".js" ),
+        ext = (optimize !== "none" ? ".min" : "") + ".js",
+        name = req.params.name || ( path.basename( req.params.repo, ".js" ) + ext ),
         filter = req.param( "filter" ),
         shasum = crypto.createHash( 'sha1' ),
         wsDir   = getWorkspaceDirSync( req.params.project, req.params.repo, req.params.ref ),
-        dstDir, dstFile;
+        dstDir, dstFile, digest;
 
     // var baseUrlFilters[baseUrl] = require(path.join(baseUrl, 'somemagicnameOrpackage.jsonEntry.js'));
-	//Set up the config passed to the optimizer
 	var config = {
 		baseUrl: path.join( wsDir, baseUrl ),
 		include: include,
+        exclude: exclude,
         pragmas: pragmas,
         pragmasOnSave: pragmasOnSave
 	};
@@ -291,43 +292,71 @@ app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
         shasum.update( filter );
     }
 
-    dstDir = path.join( getCompiledDirSync( req.params.project, req.params.repo, req.params.ref ), shasum.digest( 'hex' ) );
-    dstFile = path.join( dstDir, name + (optimize !== "none" ? ".min" : "") + ".js" );
+    digest = shasum.digest( 'hex' );
+
+    dstDir = getCompiledDirSync( req.params.project, req.params.repo, req.params.ref );
+    dstFile = path.join( dstDir, digest + ext );
 
     config.out = dstFile;
     config.optimize = optimize;
 
-    path.exists( dstFile, function ( exists ) {
-        if ( exists ) {
-	        res.header( "Access-Control-Allow-Origin", "*");
-            res.download( dstFile, name );
-        } else {
-            try {
-				requirejs.optimize( config, function ( buildResponse ) {
-					//buildResponse is just a text output of the modules
-					//included. Load the built file for the contents.
-					fs.readFile( config.out, 'utf8', function( err, contents ) {
-                        if ( err ) throw err;
-                        var filterPath = path.join( config.baseUrl, filter );
-                        if ( filter ) {
-                            filters[ wsDir ] = filters[ wsDir ] || {};
-                            filters[ wsDir ][ filterPath ] = require( filterPath );
-                            contents = filters[ wsDir ][ filterPath ]( contents );
-                        }
-                        fs.writeFile( config.out, contents, 'utf8',
-                            function( err ) {
-                                if ( err ) throw err;
-                                res.download( config.out, name );
+    function buildBundle() {
+        var promise = new Promise();
+        path.exists( dstFile, function ( exists ) {
+            if ( exists ) {
+                promise.resolve( [ dstFile, name ] );
+            } else {
+                try {
+    				requirejs.optimize( config, function ( buildResponse ) {
+    					//buildResponse is just a text output of the modules
+    					//included. Load the built file for the contents.
+    					fs.readFile( config.out, 'utf8', function( err, contents ) {
+                            if ( err ) throw err;
+                            var filterPath = path.join( config.baseUrl, filter );
+                            if ( filter ) {
+                                filters[ wsDir ] = filters[ wsDir ] || {};
+                                filters[ wsDir ][ filterPath ] = require( filterPath );
+                                contents = filters[ wsDir ][ filterPath ]( contents );
                             }
-                        );
-					});
-				});
-			} catch ( e ) {
-	            res.header( "Access-Control-Allow-Origin", "*");
-				res.send( e.toString(), 500 );
-			}
-        }
-    });
+                            fs.writeFile( config.out, contents, 'utf8',
+                                function( err ) {
+                                    if ( err ) throw err;
+                                    promise.resolve( config.out, name );
+                                }
+                            );
+    					});
+    				});
+    			} catch ( e ) {
+                    promise.reject( e.toString() );
+    			}
+            }
+        });
+        return promise;
+    }
+
+    function onBundleBuildError( error ) {
+        res.header( "Access-Control-Allow-Origin", "*");
+        res.send( error, 500 );
+        delete bundlePromises[ digest ];
+    }
+
+    function onBundleBuilt() {
+        path.exists( dstFile, function ( exists ) {
+            if ( exists ) {
+                res.header( "Access-Control-Allow-Origin", "*");
+                res.download( dstFile, name );
+            } else {
+                // Try to land back on our feet if for some reasons the built bundle got cleaned up;
+                bundlePromises[ digest ] = buildBundle().then( onBundleBuilt, onBundleBuildError );
+            }
+        });
+    }
+
+    if ( !bundlePromises[ digest ] ) {
+        bundlePromises[ digest ] = buildBundle();
+    }
+
+    bundlePromises[ digest ].then( onBundleBuilt, onBundleBuildError );
 });
 
 app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
