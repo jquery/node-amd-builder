@@ -369,33 +369,33 @@ app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
         filename = compileDir + "/deps-";
 
     async.waterfall([
-        function( callback ) {
+        function( next ) {
             // If no name is provided, scan the baseUrl for js files and return the dep map for all JS objects in baseUrl
             if ( names.length ) {
-                callback( null );
+                next();
             } else {
                 fs.readdir(baseUrl, function( err, files ) {
                     if ( err ) {
-                        callback( err );
+                        next( err );
                     } else {
                         files = files.filter( function( file ) { return path.extname( file ) === ".js" } );
                         names = files.map( function( file ) { return path.basename( file, ".js" ) } );
 
-                        callback( null );
+                        next();
                     }
                 });
             }
         },
-        function( callback ) {
+        function( next ) {
             // Generate a sha on the sorted names
             shasum.update( names.join( "," ) );
             filename += shasum.digest( 'hex' ) + ".json";
 
             path.exists( filename, function( exists ) {
-                callback( null, exists )
+                next( null, exists )
             });
         },
-        function( exists, callback ) {
+        function( exists, next ) {
             if ( exists ){
                 res.header( "Access-Control-Allow-Origin", "*");
                 res.sendfile( filename );
@@ -483,7 +483,7 @@ app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
                     if ( err ) {
                         res.send( err, 500 );
                     } else {
-                        callback( null );
+                        next( null );
                     }
                 })
             }
