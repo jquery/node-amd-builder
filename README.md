@@ -3,6 +3,8 @@
 This project aims at providing a NodeJS service to build bundles out of AMD projects in a git repository. This was developed to help jQuery Mobile build the bundle builder.
 Initial checkout as well as workspace creation have to be done manually.
 
+[![endorse](http://api.coderwall.com/ghislain/endorse.png)](http://coderwall.com/ghislain)
+
 ## API v1
 
 ### /v1/{project}/{repo}
