@@ -22,7 +22,7 @@ Traces 1st level dependencies.
 URL arguments are:
 
  - ```baseUrl```: The baseUrl for module name to file resolution
- - ```names```: A comma separated list of modules to include in the dependency map
+ - ```names```: An optional comma separated list of modules to include in the dependency map. If it's not specified, the service will compute the dependency map for all the .js files in the ```baseUrl``` directory.
 
 ### /v1/bundle/{project}/{repo}/{ref}/{name}?
 
