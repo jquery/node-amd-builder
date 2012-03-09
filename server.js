@@ -411,8 +411,8 @@ app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
                         });
                     },
                     function( cb ) {
-                        requirejs.tools.useLib(function (require) {
-                            require(['parse'], function (parse) {
+                        requirejs.tools.useLib( function ( require ) {
+                            require( [ 'parse' ], function ( parse ) {
                                 cb( null, parse );
                             })
                         });
