@@ -359,28 +359,24 @@ app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
     bundlePromises[ digest ].then( onBundleBuilt, onBundleBuildError );
 });
 
-app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
-    var wsDir = getWorkspaceDirSync( req.params.project, req.params.repo, req.params.ref ),
-        names = req.param( "names", "" ).split( "," ).filter( function(name) {return !!name} ).sort(),
-        exclude = req.param( "exclude", "" ).split( "," ).sort(),
-        baseUrl = path.normalize( path.join( wsDir, req.param( "baseUrl", "." ) ) ),
+function buildDependencyMap( project, repo, ref, baseUrl, include ) {
+    var promise = new Promise(),
         shasum = crypto.createHash( 'sha1' ),
-        compileDir = getCompiledDirSync( req.params.project, req.params.repo, req.params.ref ),
+        compileDir = getCompiledDirSync( project, repo, ref ),
         filename = compileDir + "/deps-";
 
     async.waterfall([
         function( next ) {
             // If no name is provided, scan the baseUrl for js files and return the dep map for all JS objects in baseUrl
-            if ( names.length ) {
+            if ( include.length ) {
                 next();
             } else {
-                fs.readdir(baseUrl, function( err, files ) {
+                fs.readdir( baseUrl, function( err, files ) {
                     if ( err ) {
                         next( err );
                     } else {
                         files = files.filter( function( file ) { return path.extname( file ) === ".js" } );
-                        names = files.map( function( file ) { return path.basename( file, ".js" ) } );
-
+                        include = files.map( function( file ) { return path.basename( file, ".js" ) } );
                         next();
                     }
                 });
@@ -388,7 +384,7 @@ app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
         },
         function( next ) {
             // Generate a sha on the sorted names
-            shasum.update( names.join( "," ) );
+            shasum.update( include.join( "," ) );
             filename += shasum.digest( 'hex' ) + ".json";
 
             path.exists( filename, function( exists ) {
@@ -397,8 +393,13 @@ app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
         },
         function( exists, next ) {
             if ( exists ){
-                res.header( "Access-Control-Allow-Origin", "*");
-                res.sendfile( filename );
+                fs.readFile( filename, "utf8", function( err, data ) {
+                    if ( err ) {
+                        promise.reject( err );
+                    } else {
+                        promise.resolve( JSON.parse( data ) );
+                    }
+                });
             } else {
                 async.waterfall([
                     function( cb ) {
@@ -419,13 +420,19 @@ app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
                     },
                     function( parse, cb ) {
                         var deps = {};
-                        names.forEach(function (name) {
-                            var fileName = path.join( baseUrl, name + ".js" ),
-                                contents = fs.readFileSync( fileName, 'utf8' );
-                            deps[ name ] = {};
-                            deps[ name ].deps = parse.findDependencies( fileName, contents );
+                        async.forEach( include, function ( name, done ) {
+                            var fileName = path.join( baseUrl, name + ".js" );
+                            fs.readFile( fileName, 'utf8', function( err, data ) {
+                                if ( err ) {
+                                    callback( err );
+                                }
+                                deps[ name ] = {};
+                                deps[ name ].deps = parse.findDependencies( fileName, data );
+                                done();
+                            });
+                        }, function( err ) {
+                            cb( err, deps );
                         });
-                        cb( null, deps );
                     },
                     function( deps, cb ) {
                         // Walk through the dep map and remove baseUrl and js extension
@@ -444,25 +451,25 @@ app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
                                         fs.readFile( path.join( baseUrl, item+".js" ), 'utf8', next );
                                     },
                                     function( data, next ) {
-										var attrMatchRE = /^.*\/\/>>\s*\w+\s*:.*$/mg,
-											matches = data.match( attrMatchRE );
-										if ( matches && matches.length ) {
-											matches.forEach( function( meta ) {
+                                        var attrMatchRE = /^.*\/\/>>\s*\w+\s*:.*$/mg,
+                                            matches = data.match( attrMatchRE );
+                                        if ( matches && matches.length ) {
+                                            matches.forEach( function( meta ) {
                                                 var attr = meta.replace( /^.*\/\/>>\s*(\w+)\s*:.*$/, "$1" );
-												var attrLabelRE = new RegExp( "^.*" + regexp.escapeString( "//>>" + attr + ":") + "\\s*", "m" );
-												deps[ item ][ attr ] = meta.replace( attrLabelRE, "" ).trim();
-											});
-										}
+                                                var attrLabelRE = new RegExp( "^.*" + regexp.escapeString( "//>>" + attr + ":") + "\\s*", "m" );
+                                                deps[ item ][ attr ] = meta.replace( attrLabelRE, "" ).trim();
+                                            });
+                                        }
                                         next();
                                     }
                                 ],
-                                function( err ){
-                                    if ( err ) {
-                                        res.send( err, 500 );
-                                    } else {
-                                        callback();
-                                    }
-                                });
+                                    function( err ){
+                                        if ( err ) {
+                                            promise.reject( err );
+                                        } else {
+                                            callback();
+                                        }
+                                    });
                             },
                             function( err ) {
                                 if ( err ) {
@@ -474,26 +481,40 @@ app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
                         )
                     },
                     function( deps, cb ){
-                        fs.writeFile( filename, JSON.stringify( deps ), cb);
-                        res.header( "Access-Control-Allow-Origin", "*");
-                        res.json( deps );
+                        fs.writeFile( filename, JSON.stringify( deps ), "utf8",
+                            function( err ) {
+                                if ( !err ) {
+                                    promise.resolve( deps );
+                                }
+                                cb( err );
+                            }
+                        );
                     }
                 ],
-                function( err ) {
-                    if ( err ) {
-                        res.send( err, 500 );
-                    } else {
-                        next( null );
-                    }
-                })
+                    function( err ) {
+                        if ( err ) {
+                            promise.reject( err );
+                        }
+                    })
             }
         }
-    ],
-    function( err ) {
-        if ( err ) {
+    ]);
+    return promise;
+}
+
+app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
+    var wsDir = getWorkspaceDirSync( req.params.project, req.params.repo, req.params.ref ),
+        names = req.param( "names", "" ).split( "," ).filter( function(name) {return !!name} ).sort(),
+        exclude = req.param( "exclude", "" ).split( "," ).sort(),
+        baseUrl = path.normalize( path.join( wsDir, req.param( "baseUrl", "." ) ) );
+
+
+    buildDependencyMap( req.params.project, req.params.repo, req.params.ref, baseUrl, names )
+        .then( function( content ) {
+            res.json( content );
+        }, function( err ) {
             res.send( err, 500 );
-        }
-    });
+        });
 });
 
 console.log( "listening on port:", httpPort );
