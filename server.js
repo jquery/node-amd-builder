@@ -239,7 +239,7 @@ app.get( '/v1/:project/:repo', function ( req, res ) {
         },
         fetch,
         function ( out ) {
-            res.send( out );
+            res.send( (out?"\n":"") + "OK" );
         }
     ], function( err ) {
         if ( err ) {
