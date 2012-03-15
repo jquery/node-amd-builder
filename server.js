@@ -1,12 +1,15 @@
 'use strict';
 
-var express = require( 'express' ),
+var _ = require( 'underscore' ),
+    express = require( 'express' ),
     app = express.createServer(),
     async = require( 'async'),
     crypto = require( 'crypto' ),
+    cssConcat = require( 'css-concat' ),
     fs = require( 'fs' ),
     Git = require( './lib/git'),
     exec = require( 'child_process' ).exec,
+    mime = require( 'mime' ),
     path = require( 'path' ),
     Promise = require( 'node-promise').Promise,
     regexp = require( './lib/regexp' ),
@@ -264,101 +267,6 @@ app.get( '/v1/:project/:repo/:ref', function ( req, res ) {
     );
 });
 
-app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
-    var include = req.param( "include", "main" ).split( "," ).sort(),
-        exclude = req.param( "exclude", "" ).split( "," ).sort(),
-        optimize = req.param( "optimize", "none" ),
-        baseUrl = req.param( "baseUrl", "." ),
-        pragmas = JSON.parse( req.param( "pragmas", "{}" ) ),
-        pragmasOnSave = JSON.parse( req.param( "pragmasOnSave", "{}" ) ),
-        ext = (optimize !== "none" ? ".min" : "") + ".js",
-        name = req.params.name || ( path.basename( req.params.repo, ".js" ) + ext ),
-        filter = req.param( "filter" ),
-        shasum = crypto.createHash( 'sha1' ),
-        wsDir   = getWorkspaceDirSync( req.params.project, req.params.repo, req.params.ref ),
-        dstDir, dstFile, digest;
-
-    // var baseUrlFilters[baseUrl] = require(path.join(baseUrl, 'somemagicnameOrpackage.jsonEntry.js'));
-	var config = {
-		baseUrl: path.join( wsDir, baseUrl ),
-		include: include,
-        exclude: exclude,
-        pragmas: pragmas,
-        pragmasOnSave: pragmasOnSave
-	};
-
-    shasum.update( JSON.stringify( config ) );
-    if ( filter ) {
-        shasum.update( filter );
-    }
-
-    digest = shasum.digest( 'hex' );
-
-    dstDir = getCompiledDirSync( req.params.project, req.params.repo, req.params.ref );
-    dstFile = path.join( dstDir, digest + ext );
-
-    config.out = dstFile;
-    config.optimize = optimize;
-
-    function buildBundle() {
-        var promise = new Promise();
-        path.exists( dstFile, function ( exists ) {
-            if ( exists ) {
-                promise.resolve( [ dstFile, name ] );
-            } else {
-                try {
-    				requirejs.optimize( config, function ( buildResponse ) {
-    					//buildResponse is just a text output of the modules
-    					//included. Load the built file for the contents.
-    					fs.readFile( config.out, 'utf8', function( err, contents ) {
-                            if ( err ) throw err;
-                            var filterPath = path.join( config.baseUrl, filter );
-                            if ( filter ) {
-                                filters[ wsDir ] = filters[ wsDir ] || {};
-                                filters[ wsDir ][ filterPath ] = require( filterPath );
-                                contents = filters[ wsDir ][ filterPath ]( contents );
-                            }
-                            fs.writeFile( config.out, contents, 'utf8',
-                                function( err ) {
-                                    if ( err ) throw err;
-                                    promise.resolve( config.out, name );
-                                }
-                            );
-    					});
-    				});
-    			} catch ( e ) {
-                    promise.reject( e.toString() );
-    			}
-            }
-        });
-        return promise;
-    }
-
-    function onBundleBuildError( error ) {
-        res.header( "Access-Control-Allow-Origin", "*");
-        res.send( error, 500 );
-        delete bundlePromises[ digest ];
-    }
-
-    function onBundleBuilt() {
-        path.exists( dstFile, function ( exists ) {
-            if ( exists ) {
-                res.header( "Access-Control-Allow-Origin", "*");
-                res.download( dstFile, name );
-            } else {
-                // Try to land back on our feet if for some reasons the built bundle got cleaned up;
-                bundlePromises[ digest ] = buildBundle().then( onBundleBuilt, onBundleBuildError );
-            }
-        });
-    }
-
-    if ( !bundlePromises[ digest ] ) {
-        bundlePromises[ digest ] = buildBundle();
-    }
-
-    bundlePromises[ digest ].then( onBundleBuilt, onBundleBuildError );
-});
-
 function buildDependencyMap( project, repo, ref, baseUrl, include ) {
     var promise = new Promise(),
         shasum = crypto.createHash( 'sha1' ),
@@ -368,7 +276,7 @@ function buildDependencyMap( project, repo, ref, baseUrl, include ) {
     async.waterfall([
         function( next ) {
             // If no name is provided, scan the baseUrl for js files and return the dep map for all JS objects in baseUrl
-            if ( include.length ) {
+            if ( include && include.length > 0 ) {
                 next();
             } else {
                 fs.readdir( baseUrl, function( err, files ) {
@@ -502,12 +410,183 @@ function buildDependencyMap( project, repo, ref, baseUrl, include ) {
     return promise;
 }
 
+function buildCSSBundle( project, repo, ref, config ) {
+    var promise = new Promise(),
+        baseUrl = config.baseUrl,
+        include = config.include,
+        shasum = crypto.createHash( 'sha1' ),
+        out = config.out;
+
+    path.exists( out, function ( exists ) {
+        if ( exists ) {
+            promise.resolve( out );
+        } else {
+            buildDependencyMap( project, repo, ref, baseUrl ).then(
+                function( modules ) {
+                    var css = [];
+
+                    config.include.forEach( function( module ) {
+                        // flatten the dependencies for the module
+                        buildDependencyMap( project, repo, ref, baseUrl, [ module ] )
+                            .then(
+                                function( deps ) {
+                                    var contents = "";
+                                    deps[ module ].deps.forEach( function( m ) {
+                                        if ( modules[ m ] && modules[ m ].css ) {
+                                            Array.prototype.push.apply( css, modules[ m ].css.split(",") );
+                                        }
+                                    });
+                                    if ( deps[ module ].css ) {
+                                        Array.prototype.push.apply( css, deps[ module ].css.split(",") );
+                                    }
+
+                                    // resolve the file paths
+                                    css = _.uniq( css ).map( function( s ) {
+                                        return path.resolve( baseUrl, s.trim() );
+                                    });
+
+                                    css.forEach( function( file ) {
+                                        contents += "\n";
+                                        contents += cssConcat.concat( file );
+                                    });
+                                    contents = contents.trim();
+                                    fs.writeFile( out, contents, 'utf8',
+                                        function( err ) {
+                                            if( err ) {
+                                                promise.reject( err );
+                                            } else {
+                                                promise.resolve( out );
+                                            }
+                                        }
+                                    );
+                                },
+                                function( err ) {
+                                    promise.reject( err );
+                                }
+                            )
+                    });
+                },
+                function( err ) {
+                    promise.reject( err );
+                }
+            );
+        }
+    });
+    return promise;
+}
+
+function buildJSBundle( project, repo, ref, config, filter ) {
+    var promise = new Promise(),
+        baseUrl = config.baseUrl,
+        out = config.out;
+    path.exists( out, function ( exists ) {
+        if ( exists ) {
+            promise.resolve( out );
+        } else {
+            try {
+                requirejs.optimize( config, function ( buildResponse ) {
+                    //buildResponse is just a text output of the modules
+                    //included. Load the built file for the contents.
+                    fs.readFile( config.out, 'utf8', function( err, contents ) {
+                        if ( err ) throw err;
+                        var filterPath = path.join( baseUrl, filter );
+                        if ( filter ) {
+                            filters[ wsDir ] = filters[ wsDir ] || {};
+                            filters[ wsDir ][ filterPath ] = require( filterPath );
+                            contents = filters[ wsDir ][ filterPath ]( contents );
+                        }
+                        fs.writeFile( out, contents, 'utf8',
+                            function( err ) {
+                                if( err ) {
+                                    promise.reject( err );
+                                } else {
+                                    promise.resolve( out );
+                                }
+                            }
+                        );
+                    });
+                });
+            } catch ( e ) {
+                promise.reject( e.toString() );
+            }
+        }
+    });
+    return promise;
+}
+
+app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
+    var include = req.param( "include", "main" ).split( "," ).sort(),
+        exclude = req.param( "exclude", "" ).split( "," ).sort(),
+        optimize = req.param( "optimize", "none" ),
+        baseUrl = req.param( "baseUrl", "." ),
+        pragmas = JSON.parse( req.param( "pragmas", "{}" ) ),
+        pragmasOnSave = JSON.parse( req.param( "pragmasOnSave", "{}" ) ),
+        name = req.params.name || ( req.params.repo + ".js" ),
+        ext = (optimize !== "none" ? ".min" : "") + ( path.extname( name ) || ".js" ),
+        mimetype = mime.lookup( ext ),
+        filter = req.param( "filter" ),
+        shasum = crypto.createHash( 'sha1' ),
+        wsDir   = getWorkspaceDirSync( req.params.project, req.params.repo, req.params.ref ),
+        dstDir, dstFile, digest;
+
+    // var baseUrlFilters[baseUrl] = require(path.join(baseUrl, 'somemagicnameOrpackage.jsonEntry.js'));
+	var config = {
+		baseUrl: path.join( wsDir, baseUrl ),
+		include: include,
+        exclude: exclude,
+        pragmas: pragmas,
+        pragmasOnSave: pragmasOnSave
+	};
+
+    shasum.update( JSON.stringify( config ) );
+    shasum.update( mimetype );
+    if ( filter ) {
+        shasum.update( filter );
+    }
+
+    digest = shasum.digest( 'hex' );
+
+    dstDir = getCompiledDirSync( req.params.project, req.params.repo, req.params.ref );
+    dstFile = path.join( dstDir, digest + ext );
+
+    config.out = dstFile;
+    config.optimize = optimize;
+
+    function onBundleBuildError( error ) {
+        res.header( "Access-Control-Allow-Origin", "*");
+        res.send( error, 500 );
+        delete bundlePromises[ digest ];
+    }
+
+    function onBundleBuilt( bundle ) {
+        path.exists( bundle, function ( exists ) {
+            if ( exists ) {
+                res.header( "Access-Control-Allow-Origin", "*");
+                res.download( bundle, name );
+            } else {
+                res.send( "Try again", 500 );
+                // Try to land back on our feet if for some reasons the built bundle got cleaned up;
+                //bundlePromises[ digest ] = buildJSBundle( req.params.project, req.params.repo, req.params.ref, config, filter ).then( onBundleBuilt, onBundleBuildError );
+            }
+        });
+    }
+
+    if ( !bundlePromises[ digest ] ) {
+        if ( mimetype === "text/css" ) {
+            bundlePromises[ digest ] = buildCSSBundle( req.params.project, req.params.repo, req.params.ref, config );
+        } else {
+            bundlePromises[ digest ] = buildJSBundle( req.params.project, req.params.repo, req.params.ref, config, filter );
+        }
+    }
+
+    bundlePromises[ digest ].then( onBundleBuilt, onBundleBuildError );
+});
+
 app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
     var wsDir = getWorkspaceDirSync( req.params.project, req.params.repo, req.params.ref ),
         names = req.param( "names", "" ).split( "," ).filter( function(name) {return !!name} ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         baseUrl = path.normalize( path.join( wsDir, req.param( "baseUrl", "." ) ) );
-
 
     buildDependencyMap( req.params.project, req.params.repo, req.params.ref, baseUrl, names )
         .then( function( content ) {
