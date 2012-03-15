@@ -19,10 +19,12 @@
         "async": "latest",
         "css-concat": "latest",
 	    "express": "2.5.2",
+        "mime": "latest",
         "node-promise": "latest",
 	    "request": "latest",
         "requirejs": "latest",
-        "rimraf": "latest"
+        "rimraf": "latest",
+        "underscore": "latest"
 	},
 	"scripts": {
 		"start": "REPO_BASE_DIR=/home/node/repositories WORK_BASE_DIR=/home/node/src node server.js"
