@@ -12,6 +12,7 @@ var _ = require( 'underscore' ),
     mime = require( 'mime' ),
     path = require( 'path' ),
     Promise = require( 'node-promise').Promise,
+    when = require( 'node-promise').when,
     regexp = require( './lib/regexp' ),
 	requirejs = require( 'requirejs' ),
     rimraf = require( 'rimraf' );
@@ -20,7 +21,8 @@ var httpPort = process.env.PORT || 8080,
     repoBaseDir = path.normalize( process.env.REPO_BASE_DIR ),
     workBaseDir = path.normalize ( process.env.WORK_BASE_DIR ),
     filters = {},
-    bundlePromises = {};
+    bundlePromises = {},
+    dependenciesPromises = {};
 
 app.configure('development', function(){
     app.use( express.errorHandler({ dumpExceptions: true, showStack: true }) );
@@ -65,6 +67,7 @@ function cleanup( project, repo, ref, callback ) {
                 delete require.cache[ filterPath ];
                 delete filters[ wsDir ][ filterPath ];
             }
+            bundlePromises = {};
             next( null );
         }
     ], function( err, results ) {
@@ -99,7 +102,7 @@ function checkout( project, repo, ref, force, callback ){
                     });
                 },
                 function( next ) {
-                    getRepoDir( project, repo, next )
+                    getRepoDir( project, repo, next );
                 },
                 function( dir, next ) {
                     Git( dir, workDir );
@@ -122,6 +125,7 @@ function checkout( project, repo, ref, force, callback ){
 }
 
 function getFirstExistingDir( candidates, callback ) {
+    console.log( "getFirstExistingDir" );
     var dir = candidates.shift();
     path.exists( dir , function( exists ) {
         if ( exists ) {
@@ -267,19 +271,24 @@ app.get( '/v1/:project/:repo/:ref', function ( req, res ) {
     );
 });
 
+var bid = 0;
 function buildDependencyMap( project, repo, ref, baseUrl, include ) {
+    var id = bid++;
+    console.log( "buildDependencyMap["+id+"]()" );
     var promise = new Promise(),
         shasum = crypto.createHash( 'sha1' ),
         compileDir = getCompiledDirSync( project, repo, ref ),
-        filename = compileDir + "/deps-";
+        filename = "";
 
     async.waterfall([
         function( next ) {
+            console.log( "buildDependencyMap["+id+"](): step 1" );
             // If no name is provided, scan the baseUrl for js files and return the dep map for all JS objects in baseUrl
             if ( include && include.length > 0 ) {
                 next();
             } else {
                 fs.readdir( baseUrl, function( err, files ) {
+                    console.log( "buildDependencyMap["+id+"](): step 1.1" );
                     if ( err ) {
                         next( err );
                     } else {
@@ -291,126 +300,138 @@ function buildDependencyMap( project, repo, ref, baseUrl, include ) {
             }
         },
         function( next ) {
+            console.log( "buildDependencyMap["+id+"](): step 2" );
             // Generate a sha on the sorted names
-            shasum.update( include.join( "," ) );
-            filename += shasum.digest( 'hex' ) + ".json";
+            var digest = shasum.update( include.join( "," ) ).digest( "hex" );
+
+            filename += path.join(compileDir, "deps-" + digest + ".json" );
 
             path.exists( filename, function( exists ) {
-                next( null, exists )
+                next( null, digest, exists )
             });
         },
-        function( exists, next ) {
+        function( digest, exists, next ) {
+            console.log( "buildDependencyMap["+id+"](): step 3" );
             if ( exists ){
                 fs.readFile( filename, "utf8", function( err, data ) {
                     if ( err ) {
-                        promise.reject( err );
+                        next( err );
                     } else {
-                        promise.resolve( JSON.parse( data ) );
+                        next( err, JSON.parse( data ) );
                     }
                 });
             } else {
-                async.waterfall([
-                    function( cb ) {
-                        fs.mkdir( compileDir, function( err ) {
-                            if ( err && err.code != "EEXIST" ) {
-                                cb( err );
-                            } else {
-                                cb( null );
-                            }
-                        });
-                    },
-                    function( cb ) {
-                        requirejs.tools.useLib( function ( require ) {
-                            require( [ 'parse' ], function ( parse ) {
-                                cb( null, parse );
-                            })
-                        });
-                    },
-                    function( parse, cb ) {
-                        var deps = {};
-                        async.forEach( include, function ( name, done ) {
-                            var fileName = path.join( baseUrl, name + ".js" );
-                            fs.readFile( fileName, 'utf8', function( err, data ) {
-                                if ( err ) {
-                                    callback( err );
-                                }
-                                deps[ name ] = {};
-                                deps[ name ].deps = parse.findDependencies( fileName, data );
-                                done();
-                            });
-                        }, function( err ) {
-                            cb( err, deps );
-                        });
-                    },
-                    function( deps, cb ) {
-                        // Walk through the dep map and remove baseUrl and js extension
-                        var module,
-                            modules = [],
-                            baseUrlRE = new RegExp( "^" + regexp.escapeString( baseUrl + "/") ),
-                            jsExtRE = new RegExp( regexp.escapeString( ".js" ) + "$" );
-                        for ( module in deps ) {
-                            modules.push( module );
-                        }
-
-                        async.forEach( modules,
-                            function( item, callback ) {
-                                async.waterfall([
-                                    function( next ) {
-                                        fs.readFile( path.join( baseUrl, item+".js" ), 'utf8', next );
-                                    },
-                                    function( data, next ) {
-                                        var attrMatchRE = /^.*\/\/>>\s*\w+\s*:.*$/mg,
-                                            matches = data.match( attrMatchRE );
-                                        if ( matches && matches.length ) {
-                                            matches.forEach( function( meta ) {
-                                                var attr = meta.replace( /^.*\/\/>>\s*(\w+)\s*:.*$/, "$1" );
-                                                var attrLabelRE = new RegExp( "^.*" + regexp.escapeString( "//>>" + attr + ":") + "\\s*", "m" );
-                                                deps[ item ][ attr ] = meta.replace( attrLabelRE, "" ).trim();
-                                            });
-                                        }
-                                        next();
-                                    }
-                                ],
-                                    function( err ){
-                                        if ( err ) {
-                                            promise.reject( err );
-                                        } else {
-                                            callback();
-                                        }
-                                    });
-                            },
-                            function( err ) {
-                                if ( err ) {
+                if ( !dependenciesPromises[ digest ] ) {
+                    dependenciesPromises[ digest ] = promise;
+                    async.waterfall([
+                        function( cb ) {
+                            console.log( "buildDependencyMap["+id+"](): step 3.1" );
+                            console.log( "mkdir '" + compileDir + "'" );
+                            fs.mkdir( compileDir, function( err ) {
+                                if ( err && err.code != "EEXIST" ) {
                                     cb( err );
                                 } else {
-                                    cb( null, deps );
+                                    cb( null );
                                 }
+                            });
+                        },
+                        function( cb ) {
+                            console.log( "buildDependencyMap["+id+"](): step 3.2" );
+                            requirejs.tools.useLib( function ( r ) {
+                                r( [ 'parse' ], function ( parse ) {
+                                    cb( null, parse );
+                                })
+                            });
+                        },
+                        function( parse, cb ) {
+                            console.log( "buildDependencyMap["+id+"](): step 3.3" );
+                            var deps = {};
+                            async.forEach( include, function ( name, done ) {
+                                var fileName = path.join( baseUrl, name + ".js" );
+                                console.log( "Processing: " + fileName );
+                                fs.readFile( fileName, 'utf8', function( err, data ) {
+                                    if ( err ) {
+                                        callback( err );
+                                    }
+                                    deps[ name ] = {};
+                                    deps[ name ].deps = parse.findDependencies( fileName, data );
+                                    done();
+                                });
+                            }, function( err ) {
+                                cb( err, deps );
+                            });
+                        },
+                        function( deps, cb ) {
+                            console.log( "buildDependencyMap["+id+"](): step 3.4" );
+                            // Walk through the dep map and remove baseUrl and js extension
+                            var module,
+                                modules = [],
+                                baseUrlRE = new RegExp( "^" + regexp.escapeString( baseUrl + "/") ),
+                                jsExtRE = new RegExp( regexp.escapeString( ".js" ) + "$" );
+                            for ( module in deps ) {
+                                modules.push( module );
                             }
-                        )
-                    },
-                    function( deps, cb ){
-                        fs.writeFile( filename, JSON.stringify( deps ), "utf8",
-                            function( err ) {
-                                if ( !err ) {
-                                    promise.resolve( deps );
+
+                            async.forEach( modules,
+                                function( item, callback ) {
+                                    async.waterfall([
+                                        function( next ) {
+                                            console.log( "buildDependencyMap["+id+"](): step 3.4.1" );
+                                            fs.readFile( path.join( baseUrl, item+".js" ), 'utf8', next );
+                                        },
+                                        function( data, next ) {
+                                            console.log( "buildDependencyMap["+id+"](): step 3.4.2" );
+                                            var attrMatchRE = /^.*\/\/>>\s*\w+\s*:.*$/mg,
+                                                matches = data.match( attrMatchRE );
+                                            if ( matches && matches.length ) {
+                                                matches.forEach( function( meta ) {
+                                                    var attr = meta.replace( /^.*\/\/>>\s*(\w+)\s*:.*$/, "$1" );
+                                                    var attrLabelRE = new RegExp( "^.*" + regexp.escapeString( "//>>" + attr + ":") + "\\s*", "m" );
+                                                    deps[ item ][ attr ] = meta.replace( attrLabelRE, "" ).trim();
+                                                });
+                                            }
+                                            next();
+                                        }
+                                    ], callback );
+                                },
+                                function( err ) {
+                                    if ( err ) {
+                                        cb( err );
+                                    } else {
+                                        cb( null, deps );
+                                    }
                                 }
-                                cb( err );
-                            }
-                        );
-                    }
-                ],
-                    function( err ) {
-                        if ( err ) {
-                            promise.reject( err );
+                            )
+                        },
+                        function( deps, cb ){
+                            console.log( "buildDependencyMap["+id+"](): step 3.5" );
+                            fs.writeFile( filename, JSON.stringify( deps ), "utf8",
+                                function( err ) {
+                                    cb( err, deps );
+                                }
+                            );
                         }
-                    })
+                    ], next );
+                } else {
+                    dependenciesPromises[ digest ].then( function( data ) {
+                        next( null, data );
+                    },
+                    next );
+                }
             }
         }
-    ]);
+    ], function( err, data ) {
+        if ( err ) {
+            promise.reject( err );
+        } else {
+            promise.resolve( data );
+        }
+    });
     return promise;
 }
 
 function buildCSSBundle( project, repo, ref, config ) {
+    console.log( "buildCSSBundle()" );
     var promise = new Promise(),
         baseUrl = config.baseUrl,
         include = config.include,
@@ -419,51 +440,59 @@ function buildCSSBundle( project, repo, ref, config ) {
 
     path.exists( out, function ( exists ) {
         if ( exists ) {
+            console.log( "buildCSSBundle: resolving promise" );
             promise.resolve( out );
         } else {
+            // get the dependency map for all modules
             buildDependencyMap( project, repo, ref, baseUrl ).then(
                 function( modules ) {
-                    var css = [];
+                    var cssFiles = [],
+                        contents =  "";
 
-                    config.include.forEach( function( module ) {
-                        // flatten the dependencies for the module
-                        buildDependencyMap( project, repo, ref, baseUrl, [ module ] )
-                            .then(
-                                function( deps ) {
-                                    var contents = "";
-                                    deps[ module ].deps.forEach( function( m ) {
-                                        if ( modules[ m ] && modules[ m ].css ) {
-                                            Array.prototype.push.apply( css, modules[ m ].css.split(",") );
-                                        }
-                                    });
-                                    if ( deps[ module ].css ) {
-                                        Array.prototype.push.apply( css, deps[ module ].css.split(",") );
+                    async.series([
+                        function( next ) {
+                            async.forEach( config.include, function( module, done ) {
+                                var addCssDependencies = function( m ) {
+                                    m = m.replace( /^.*!/, "" );  // remove the plugin part
+                                    m = m.replace( /\[.*$/, "" ); // remove the plugin arguments at the end of the path
+                                    m = m.replace( /^\.\//, "" ); // remove the relative path "./"
+                                    if ( modules[ m ] &&  modules[ m ].deps ) {
+                                        modules[ m ].deps.forEach( addCssDependencies );
                                     }
+                                    if ( modules[ m ] && modules[ m ].css ) {
+                                        console.log( "Adding: " + modules[ m ].css );
+                                        Array.prototype.push.apply( cssFiles, modules[ m ].css.split(",") );
+                                    }
+                                };
+                                addCssDependencies( module );
+                                done();
+                            }, next )
+                        },
+                        function( next ) {
+                            // resolve the file paths
+                            cssFiles = _.uniq( cssFiles ).map( function( s ) {
+                                return path.resolve( baseUrl, s.trim() );
+                            });
 
-                                    // resolve the file paths
-                                    css = _.uniq( css ).map( function( s ) {
-                                        return path.resolve( baseUrl, s.trim() );
-                                    });
-
-                                    css.forEach( function( file ) {
-                                        contents += "\n";
-                                        contents += cssConcat.concat( file );
-                                    });
-                                    contents = contents.trim();
-                                    fs.writeFile( out, contents, 'utf8',
-                                        function( err ) {
-                                            if( err ) {
-                                                promise.reject( err );
-                                            } else {
-                                                promise.resolve( out );
-                                            }
-                                        }
-                                    );
-                                },
-                                function( err ) {
-                                    promise.reject( err );
+                            cssFiles.forEach( function( file ) {
+                                contents += "\n";
+                                try {
+                                    contents += cssConcat.concat( file );
+                                } catch ( e ) {
+                                    next( e.toString() );
                                 }
-                            )
+                            });
+                            contents = contents.trim();
+
+                            fs.writeFile( out, contents, 'utf8', next );
+                        }
+                    ], function( err ) {
+                        if( err ) {
+                            promise.reject( err );
+                        } else {
+                            console.log( "buildCSSBundle: resolving promise" );
+                            promise.resolve( out );
+                        }
                     });
                 },
                 function( err ) {
@@ -475,40 +504,60 @@ function buildCSSBundle( project, repo, ref, config ) {
     return promise;
 }
 
+var bjsid = 0;
 function buildJSBundle( project, repo, ref, config, filter ) {
+    var id = bjsid ++;
+    console.log( "buildJSBundle["+id+"]()" );
     var promise = new Promise(),
         baseUrl = config.baseUrl,
+        wsDir = getWorkspaceDirSync( project, repo, ref ),
         out = config.out;
     path.exists( out, function ( exists ) {
         if ( exists ) {
+            console.log( "buildJSBundle: resolving promise" );
             promise.resolve( out );
         } else {
-            try {
-                requirejs.optimize( config, function ( buildResponse ) {
-                    //buildResponse is just a text output of the modules
-                    //included. Load the built file for the contents.
-                    fs.readFile( config.out, 'utf8', function( err, contents ) {
-                        if ( err ) throw err;
-                        var filterPath = path.join( baseUrl, filter );
-                        if ( filter ) {
-                            filters[ wsDir ] = filters[ wsDir ] || {};
-                            filters[ wsDir ][ filterPath ] = require( filterPath );
-                            contents = filters[ wsDir ][ filterPath ]( contents );
+            async.waterfall([
+                function( next ) {
+                    console.log( "buildJSBundle["+id+"](): step 1" );
+                    var outDir = path.dirname( config.out );
+                    console.log( "mkdir '" + outDir + "'" );
+                    fs.mkdir( outDir, function( err ) {
+                        if ( err && err.code != "EEXIST" ) {
+                            next( err );
+                        } else {
+                            next();
                         }
-                        fs.writeFile( out, contents, 'utf8',
-                            function( err ) {
-                                if( err ) {
-                                    promise.reject( err );
-                                } else {
-                                    promise.resolve( out );
-                                }
-                            }
-                        );
                     });
-                });
-            } catch ( e ) {
-                promise.reject( e.toString() );
-            }
+                },
+                function( next ) {
+                    console.log( "buildJSBundle["+id+"](): step 2" );
+                    requirejs.optimize( config, function( response ) {
+                        next( null, response );
+                    });
+                },
+                function( response, next ) {
+                    console.log( "buildJSBundle["+id+"](): step 3" );
+                    fs.readFile( config.out, 'utf8', next );
+                },
+                function ( contents, next ) {
+                    console.log( "buildJSBundle["+id+"](): step 4" );
+                    var filterPath = path.join( baseUrl, filter );
+                    if ( filter ) {
+                        filters[ wsDir ] = filters[ wsDir ] || {};
+                        filters[ wsDir ][ filterPath ] = require( filterPath );
+                        contents = filters[ wsDir ][ filterPath ]( contents );
+                    }
+                    fs.writeFile( out, contents, 'utf8', next );
+                }
+            ], function( err ) {
+                if( err ) {
+                    promise.reject( err );
+                } else {
+                    console.log( "buildJSBundle: resolving promise" );
+                    promise.resolve( out );
+                }
+            });
         }
     });
     return promise;
@@ -535,7 +584,8 @@ app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
 		include: include,
         exclude: exclude,
         pragmas: pragmas,
-        pragmasOnSave: pragmasOnSave
+        pragmasOnSave: pragmasOnSave,
+        skipModuleInsertion: req.param( "skipModuleInsertion", false )
 	};
 
     shasum.update( JSON.stringify( config ) );
@@ -558,28 +608,33 @@ app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
         delete bundlePromises[ digest ];
     }
 
+    function buildBundle() {
+        if ( mimetype === "text/css" ) {
+            bundlePromises[ digest ] = buildCSSBundle( req.params.project, req.params.repo, req.params.ref, config );
+        } else {
+            bundlePromises[ digest ] = buildJSBundle( req.params.project, req.params.repo, req.params.ref, config, filter );
+        }
+        bundlePromises[ digest ].then( onBundleBuilt, onBundleBuildError );
+    }
+
     function onBundleBuilt( bundle ) {
         path.exists( bundle, function ( exists ) {
             if ( exists ) {
                 res.header( "Access-Control-Allow-Origin", "*");
                 res.download( bundle, name );
             } else {
-                res.send( "Try again", 500 );
                 // Try to land back on our feet if for some reasons the built bundle got cleaned up;
-                //bundlePromises[ digest ] = buildJSBundle( req.params.project, req.params.repo, req.params.ref, config, filter ).then( onBundleBuilt, onBundleBuildError );
+                delete bundlePromises[ digest ];
+                buildBundle();
             }
         });
     }
 
     if ( !bundlePromises[ digest ] ) {
-        if ( mimetype === "text/css" ) {
-            bundlePromises[ digest ] = buildCSSBundle( req.params.project, req.params.repo, req.params.ref, config );
-        } else {
-            bundlePromises[ digest ] = buildJSBundle( req.params.project, req.params.repo, req.params.ref, config, filter );
-        }
+        buildBundle();
+    } else {
+        bundlePromises[ digest ].then( onBundleBuilt, onBundleBuildError );
     }
-
-    bundlePromises[ digest ].then( onBundleBuilt, onBundleBuildError );
 });
 
 app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
@@ -590,6 +645,7 @@ app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
 
     buildDependencyMap( req.params.project, req.params.repo, req.params.ref, baseUrl, names )
         .then( function( content ) {
+            res.header( "Access-Control-Allow-Origin", "*");
             res.json( content );
         }, function( err ) {
             res.send( err, 500 );
