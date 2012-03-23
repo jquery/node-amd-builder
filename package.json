@@ -13,7 +13,7 @@
 	}],
 	"repositories": [{
 		"type": "git",
-		"url": "node@amd-builder.no.de:repo"
+		"url": "git@github.com:gseguin/node-amd-builder.git"
 	}],
 	"dependencies": {
         "async": "latest",
