@@ -68,16 +68,11 @@ function cleanup( project, repo, ref, callback ) {
                 delete require.cache[ filterPath ];
                 delete filters[ wsDir ][ filterPath ];
             }
+            dependenciesPromises = {};
             bundlePromises = {};
-            next( null );
+            next();
         }
-    ], function( err, results ) {
-        if ( err )  {
-            callback( err );
-        } else {
-            callback();
-        }
-    });
+    ], callback );
 
 }
 
@@ -112,13 +107,7 @@ function checkout( project, repo, ref, force, callback ){
                 function( out, next ) {
                     cleanup( project, repo, ref, next );
                 }
-            ], function( err ) {
-                if ( err ) {
-                    callback( err );
-                } else {
-                    callback( null );
-                }
-            });
+            ], callback );
         } else {
             callback( "Worspace for " + repo + "/" + ref + " has not been created" );
         }
@@ -222,7 +211,7 @@ app.post( '/post_receive', function ( req, res ) {
                         checkout( project, repoName, ref, next );
                     }
                 ],
-                function ( err, result ) {
+                function ( err ) {
                     if ( err ) {
                         res.send( err, 500 );
                     } else {
