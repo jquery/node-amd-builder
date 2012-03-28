@@ -200,7 +200,7 @@ app.post( '/post_receive', function ( req, res ) {
                 }
             });
         };
-
+    console.log( "post_receive(): " + payload );
     if ( payload ) {
         try {
             payload = JSON.parse( payload );
