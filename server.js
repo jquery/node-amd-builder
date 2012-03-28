@@ -15,7 +15,8 @@ var _ = require( 'underscore' ),
     when = require( 'node-promise').when,
     regexp = require( './lib/regexp' ),
 	requirejs = require( 'requirejs' ),
-    rimraf = require( 'rimraf' );
+    rimraf = require( 'rimraf' ),
+    url = require( 'url' );
 
 var httpPort = process.env.PORT || 8080,
     repoBaseDir = path.normalize( process.env.REPO_BASE_DIR ),
