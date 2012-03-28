@@ -43,7 +43,7 @@ app.use(express.bodyParser());
 //fs.watchFile( configFilename, { persistent: true, interval: 500 }, loadConfig);
 
 app.get( '/', function ( req, res ) {
-    res.send( "<h1 style='text-align: center; font-size: 120px;'>ZOMG JQM-BUILDER</h1>" );
+    res.send( "<h1 style='text-align: center; font-size: 120px;'>GitHub based AMD web builder</h1>" );
 });
 
 function fetch( repoDir, callback ) {
