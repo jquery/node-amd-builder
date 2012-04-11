@@ -568,10 +568,9 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
 
 app.get( '/v1/dependencies/:owner/:repo/:ref', function ( req, res ) {
     var project = new Project( req.params.owner, req.params.repo, req.params.ref ),
-        wsDir = getWorkspaceDirSync( project ),
         names = req.param( "names", "" ).split( "," ).filter( function(name) {return !!name} ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
-        baseUrl = path.normalize( path.join( wsDir, req.param( "baseUrl", "." ) ) );
+        baseUrl = path.normalize( path.join( project.getWorkspaceDirSync(), req.param( "baseUrl", "." ) ) );
 
     buildDependencyMap( project, baseUrl, names )
         .then( function( content ) {
