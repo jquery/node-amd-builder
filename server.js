@@ -16,9 +16,8 @@ var _ = require( 'underscore' ),
     when = require( 'node-promise').when,
     regexp = require( './lib/regexp' ),
 	requirejs = require( 'requirejs' ),
-    spawn = require( 'child_process' ).spawn,
     url = require( 'url' ),
-    zipfile = require('zipfile');
+    zip = require("node-native-zip" );
 
 var httpPort = process.env.PORT || 8080,
     filters = {},
@@ -291,13 +290,13 @@ function buildDependencyMap( project, baseUrl, include ) {
     return promise;
 }
 
-function buildCSSBundle( project, config ) {
+function buildCSSBundle( project, config, name, optimize ) {
     console.log( "buildCSSBundle()" );
     var promise = new Promise(),
         baseUrl = config.baseUrl,
         include = config.include,
         shasum = crypto.createHash( 'sha1' ),
-        out = config.out;
+        out = path.join( project.getCompiledDirSync(), name + ( optimize ? ".min" : "") + ".css" );
 
     path.exists( out, function ( exists ) {
         if ( exists ) {
@@ -312,7 +311,7 @@ function buildCSSBundle( project, config ) {
 
                     async.series([
                         function( next ) {
-                            async.forEach( config.include, function( module, done ) {
+                            async.forEach( include, function( module, done ) {
                                 var addCssDependencies = function( m ) {
                                     m = m.replace( /^.*!/, "" );  // remove the plugin part
                                     m = m.replace( /\[.*$/, "" ); // remove the plugin arguments at the end of the path
@@ -345,6 +344,14 @@ function buildCSSBundle( project, config ) {
                             });
                             contents = contents.trim();
 
+                            if ( optimize ) {
+//                            requirejs.tools.useLib( function ( r ) {
+//                                r( [ 'optimize' ], function ( optimize ) {
+
+//                                })
+//                            });
+                            }
+
                             fs.writeFile( out, contents, 'utf8', next );
                         }
                     ], function( err ) {
@@ -366,13 +373,13 @@ function buildCSSBundle( project, config ) {
 }
 
 var bjsid = 0;
-function buildJSBundle( project, config, filter ) {
+function buildJSBundle( project, config, name, filter, optimize ) {
     var id = bjsid ++;
     console.log( "buildJSBundle["+id+"]()" );
     var promise = new Promise(),
         baseUrl = config.baseUrl,
         wsDir = project.getWorkspaceDirSync(),
-        out = config.out;
+        out = path.join( project.getCompiledDirSync(), name + ( optimize ? ".min" : "" ) + ".js" );
 
     path.exists( out, function ( exists ) {
         if ( exists ) {
@@ -394,13 +401,17 @@ function buildJSBundle( project, config, filter ) {
                 },
                 function( next ) {
                     console.log( "buildJSBundle["+id+"](): step 2" );
-                    requirejs.optimize( config, function( response ) {
-                        next( null, response );
-                    });
+                    try {
+                        requirejs.optimize( _.extend( { out: out, optimize: ( optimize ? "uglify" : "none" ) }, config ), function( response ) {
+                            next( null, response );
+                        });
+                    } catch ( e ){
+                        next( e.toString() );
+                    }
                 },
                 function( response, next ) {
                     console.log( "buildJSBundle["+id+"](): step 3" );
-                    fs.readFile( config.out, 'utf8', next );
+                    fs.readFile( out, 'utf8', next );
                 },
                 function ( contents, next ) {
                     console.log( "buildJSBundle["+id+"](): step 4" );
@@ -425,12 +436,51 @@ function buildJSBundle( project, config, filter ) {
     return promise;
 }
 
-function buildZipBundle( project, config, filter )  {
+function buildZipBundle( project, name, config, digest, filter )  {
     console.log( "buildZipBundle()" );
     var promise = new Promise(),
         baseUrl = config.baseUrl,
-        out = config.out;
+        basename = path.basename( name, ".zip" ),
+        out = path.join( project.getCompiledDirSync(), digest + ".zip" );
 
+    path.exists( out, function ( exists ) {
+        if ( exists ) {
+            promise.resolve( out );
+        } else {
+            promiseUtils.all([
+                buildCSSBundle( project, config, digest ),
+                buildJSBundle( project, config, digest, filter ),
+                buildJSBundle( project, config, digest, filter, true )
+            ]).then(
+                function( results ) {
+                    var archive = new zip();
+
+                    async.series([
+                        function( next ) {
+                            archive.addFiles(
+                                [ ".css", ".js", ".min.js" ]
+                                    .map(
+                                    function( ext ) {
+                                        return { name: basename + ext, path: path.join( project.getCompiledDirSync(), digest + ext ) };
+                                    }
+                                ),
+                                next
+                            );
+                        },
+                        function( next ) {
+                            fs.writeFile( out, archive.toBuffer(), next );
+                        }
+                    ], function( err ) {
+                        if( err ) {
+                            promise.reject( err );
+                        } else {
+                            promise.resolve( out );
+                        }
+                    });
+                }
+            )
+        }
+    });
     return promise;
 }
 
@@ -438,7 +488,7 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
     var project = new Project( req.params.owner, req.params.repo, req.params.ref ),
         include = req.param( "include", "main" ).split( "," ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
-        optimize = req.param( "optimize", "none" ),
+        optimize = Boolean( req.param( "optimize", false ) ).valueOf(),
         baseUrl = req.param( "baseUrl", "." ),
         pragmas = JSON.parse( req.param( "pragmas", "{}" ) ),
         pragmasOnSave = JSON.parse( req.param( "pragmasOnSave", "{}" ) ),
@@ -448,7 +498,7 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
         filter = req.param( "filter" ),
         shasum = crypto.createHash( 'sha1' ),
         wsDir   = project.getWorkspaceDirSync(),
-        dstDir, dstFile, digest;
+        dstDir, dstFile, digest, hash;
 
     // var baseUrlFilters[baseUrl] = require(path.join(baseUrl, 'somemagicnameOrpackage.jsonEntry.js'));
 	var config = {
@@ -466,13 +516,17 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
         shasum.update( filter );
     }
 
+    if ( mimetype === "application/zip" ) {
+        // For the zip file, the name needs to be part of the hash because it will determine the name of the files inside the zip file
+        shasum.update( name );
+    }
+
     digest = shasum.digest( 'hex' );
-
-    dstDir = project.getCompiledDirSync();
-    dstFile = path.join( dstDir, digest + ext );
-
-    config.out = dstFile;
-    config.optimize = optimize;
+    if ( mimetype === "application/zip" ) {
+        hash = digest;
+    } else {
+        hash += ( optimize ? ".min" : "" );
+    }
 
     function onBundleBuildError( error ) {
         res.header( "Access-Control-Allow-Origin", "*");
@@ -481,14 +535,15 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
     }
 
     function buildBundle() {
+        var hash = digest;
         if ( mimetype === "application/zip" ) {
-            bundlePromises[ digest ] = buildZipBundle( project, config );
+            bundlePromises[ hash ] = buildZipBundle( project, name, config, digest, filter );
         } else if ( mimetype === "text/css" ) {
-            bundlePromises[ digest ] = buildCSSBundle( project, config );
+            bundlePromises[ hash  ] = buildCSSBundle( project, config, digest, optimize );
         } else {
-            bundlePromises[ digest ] = buildJSBundle( project, config, filter );
+            bundlePromises[ hash ] = buildJSBundle( project, config, digest, filter, optimize );
         }
-        bundlePromises[ digest ].then( onBundleBuilt, onBundleBuildError );
+        bundlePromises[ hash ].then( onBundleBuilt, onBundleBuildError );
     }
 
     function onBundleBuilt( bundle ) {
@@ -498,16 +553,16 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
                 res.download( bundle, name );
             } else {
                 // Try to land back on our feet if for some reasons the built bundle got cleaned up;
-                delete bundlePromises[ digest ];
+                delete bundlePromises[ hash ];
                 buildBundle();
             }
         });
     }
 
-    if ( !bundlePromises[ digest ] ) {
+    if ( !bundlePromises[ hash ] ) {
         buildBundle();
     } else {
-        bundlePromises[ digest ].then( onBundleBuilt, onBundleBuildError );
+        bundlePromises[ hash ].then( onBundleBuilt, onBundleBuildError );
     }
 });
 

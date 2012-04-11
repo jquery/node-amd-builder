@@ -35,7 +35,7 @@
     "requirejs": "1.0.8",
     "rimraf": "latest",
     "underscore": "latest",
-    "zipfile": "~0.3.x"
+    "node-native-zip": "~1.0.1"
   },
   "scripts": {
     "start": "server.js"
