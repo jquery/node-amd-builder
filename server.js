@@ -83,7 +83,7 @@ app.post( '/post_receive', function ( req, res ) {
             if ( project ) {
                 async.series([
                     _.bind( project.fetch, project ),
-                    _.bind( project.checkout, project ),
+                    _.bind( project.checkout, project )
                 ],
                 function ( err ) {
                     if ( err ) {
