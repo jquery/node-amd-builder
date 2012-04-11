@@ -6,21 +6,21 @@ var _ = require( 'underscore' ),
     async = require( 'async'),
     crypto = require( 'crypto' ),
     cssConcat = require( 'css-concat' ),
+    fetch = require( './lib/project' ).fetch,
     fs = require( 'fs' ),
-    Git = require( './lib/git'),
-    exec = require( 'child_process' ).exec,
     mime = require( 'mime' ),
     path = require( 'path' ),
+    Project = require( './lib/project' ).Project,
+    promiseUtils = require( 'node-promise' ),
     Promise = require( 'node-promise').Promise,
     when = require( 'node-promise').when,
     regexp = require( './lib/regexp' ),
 	requirejs = require( 'requirejs' ),
-    rimraf = require( 'rimraf' ),
-    url = require( 'url' );
+    spawn = require( 'child_process' ).spawn,
+    url = require( 'url' ),
+    zipfile = require('zipfile');
 
 var httpPort = process.env.PORT || 8080,
-    repoBaseDir = path.normalize( process.env.REPO_BASE_DIR ),
-    workBaseDir = path.normalize ( process.env.WORK_BASE_DIR ),
     filters = {},
     bundlePromises = {},
     dependenciesPromises = {};
@@ -46,128 +46,9 @@ app.get( '/', function ( req, res ) {
     res.send( "<h1 style='text-align: center; font-size: 120px;'>GitHub based AMD web builder</h1>" );
 });
 
-function fetch( repoDir, callback ) {
-    Git( repoDir );
-    Git.exec( [ "fetch" ], callback );
-}
-
-function cleanup( project, repo, ref, callback ) {
-    var compiled = getCompiledDirSync( project, repo, ref );
-
-    async.series([
-        function( next ) {
-            rimraf( compiled, next );
-        },
-        function( next ) {
-            fs.mkdir( compiled, next );
-        },
-        function( next ) {
-            var wsDir = getWorkspaceDirSync( project, repo, ref ),
-                filterPath;
-            for ( filterPath in filters[ wsDir ] ) {
-                delete require.cache[ filterPath ];
-                delete filters[ wsDir ][ filterPath ];
-            }
-            dependenciesPromises = {};
-            bundlePromises = {};
-            next();
-        }
-    ], callback );
-
-}
-
-function checkout( project, repo, ref, force, callback ){
-    if ( typeof force === "function" ) {
-        callback = force;
-        force = false;
-    }
-
-    // Workspace
-    var workDir  = getWorkspaceDirSync( project, repo, ref );
-
-    path.exists( workDir, function( exists ) {
-        if ( exists || force ) {
-            async.waterfall([
-                function( next ) {
-                    fs.mkdir( workDir, function( err ) {
-                        if ( err && err.code != "EEXIST" ) {
-                            next( err );
-                        } else {
-                            next( null );
-                        }
-                    });
-                },
-                function( next ) {
-                    getRepoDir( project, repo, next );
-                },
-                function( dir, next ) {
-                    Git( dir, workDir );
-                    Git.exec( [ "checkout", "-f", ref ], next );
-                },
-                function( out, next ) {
-                    cleanup( project, repo, ref, next );
-                }
-            ], callback );
-        } else {
-            callback( "Worspace for " + repo + "/" + ref + " has not been created" );
-        }
-    });
-}
-
-function getFirstExistingDir( candidates, callback ) {
-    console.log( "getFirstExistingDir" );
-    var dir = candidates.shift();
-    path.exists( dir , function( exists ) {
-        if ( exists ) {
-            callback( null, dir );
-        } else {
-            if ( candidates.length ) {
-                getFirstExistingDir( candidates, callback );
-            } else {
-                callback( "none found" );
-            }
-        }
-    });
-}
-
-function getProjectSpecificDirSync( baseDir, project ) {
-    if ( project ) {
-        baseDir = path.join( baseDir, project );
-    }
-    return baseDir;
-}
-
-function getRepoBaseDirSync( project ) {
-    return getProjectSpecificDirSync( repoBaseDir, project );
-}
-
-function getWorkspaceBaseDirSync( project ) {
-    return getProjectSpecificDirSync( workBaseDir, project );
-}
-
-function getRepoDir( project, repo, callback ) {
-    var repoDir = path.join( getRepoBaseDirSync( project ), repo );
-    getFirstExistingDir( [ repoDir, repoDir + ".git" ], callback );
-}
-
-function getWorkspaceDirSync( project, repo, ref ) {
-    var workspaceDir;
-    if ( project ) {
-        workspaceDir = path.join( getWorkspaceBaseDirSync( project ), ref, repo )
-    } else {
-        path.join( repo, ref )
-    }
-
-    return workspaceDir;
-}
-
-function getCompiledDirSync( project, repo, ref ) {
-    return path.join( getWorkspaceDirSync( project, repo, ref ), "__compiled" );
-}
-
 app.post( '/post_receive', function ( req, res ) {
     var payload = req.body.payload,
-        project, repoName, repoUrl, ref,
+        owner, repo, repoUrl, ref,
         fetchIfExists = function( candidates, callback ) {
             var dir = candidates.shift();
             path.exists( dir , function( exists ) {
@@ -185,7 +66,7 @@ app.post( '/post_receive', function ( req, res ) {
                     if ( candidates.length ) {
                         fetchIfExists( candidates );
                     } else {
-                        res.send( "Workspace for '" + repoName + "' hasn't been checked out", 404 );
+                        res.send( "Workspace for '" + repo + "' hasn't been checked out", 404 );
                     }
                 }
             });
@@ -194,22 +75,16 @@ app.post( '/post_receive', function ( req, res ) {
     if ( payload ) {
         try {
             payload = JSON.parse( payload );
-            repoName = payload.repository.name;
+            repo = payload.repository.name;
             repoUrl = url.parse( payload.repository.url );
-            project = path.dirname( repoUrl.path ).substring( 1 );
-            ref = payload.ref.split( "/" ).pop();
+            owner = path.dirname( repoUrl.path ).substring( 1 );
+            ref = payload.ref.split( "/" ).pop(),
+            project = new Project( owner, repo, ref );
 
-            if ( project && repoName && ref ) {
-                async.waterfall([
-                    function( next ){
-                        getRepoDir( project, repoName, next );
-                    },
-                    function( dir, next ) {
-                        fetch( dir, next );
-                    },
-                    function( out, next ) {
-                        checkout( project, repoName, ref, next );
-                    }
+            if ( project ) {
+                async.series([
+                    _.bind( project.fetch, project ),
+                    _.bind( project.checkout, project ),
                 ],
                 function ( err ) {
                     if ( err ) {
@@ -229,14 +104,12 @@ app.post( '/post_receive', function ( req, res ) {
     }
 });
 
-app.get( '/v1/:project/:repo', function ( req, res ) {
+app.get( '/v1/:owner/:repo', function ( req, res ) {
+    var project = new Project( req.params.owner, req.params.repo );
     async.waterfall([
-        function( callback ) {
-            getRepoDir( req.params.project, req.params.repo, callback )
-        },
-        fetch,
+        _.bind( project.fetch, project ),
         function ( out ) {
-            res.send( (out?"\n":"") + "OK" );
+            res.send( ( out?"\n":"" ) + "OK" );
         }
     ], function( err ) {
         if ( err ) {
@@ -245,12 +118,10 @@ app.get( '/v1/:project/:repo', function ( req, res ) {
     })
 });
 
-app.get( '/v1/:project/:repo/:ref', function ( req, res ) {
-    var project = req.params.project,
-        repo    = req.params.repo,
-        ref     = req.params.ref;
+app.get( '/v1/:owner/:repo/:ref', function ( req, res ) {
+    var project = new Project( req.params.owner, req.params.repo, req.params.ref );
 
-    checkout( project, repo, ref,
+    project.checkout(
         function( err ) {
             if ( err ) {
                 res.send( err, 500 );
@@ -262,12 +133,12 @@ app.get( '/v1/:project/:repo/:ref', function ( req, res ) {
 });
 
 var bid = 0;
-function buildDependencyMap( project, repo, ref, baseUrl, include ) {
+function buildDependencyMap( project, baseUrl, include ) {
     var id = bid++;
     console.log( "buildDependencyMap["+id+"]()" );
     var promise = new Promise(),
         shasum = crypto.createHash( 'sha1' ),
-        compileDir = getCompiledDirSync( project, repo, ref ),
+        compileDir = project.getCompiledDirSync(),
         filename = "";
 
     async.waterfall([
@@ -420,7 +291,7 @@ function buildDependencyMap( project, repo, ref, baseUrl, include ) {
     return promise;
 }
 
-function buildCSSBundle( project, repo, ref, config ) {
+function buildCSSBundle( project, config ) {
     console.log( "buildCSSBundle()" );
     var promise = new Promise(),
         baseUrl = config.baseUrl,
@@ -434,7 +305,7 @@ function buildCSSBundle( project, repo, ref, config ) {
             promise.resolve( out );
         } else {
             // get the dependency map for all modules
-            buildDependencyMap( project, repo, ref, baseUrl ).then(
+            buildDependencyMap( project, baseUrl ).then(
                 function( modules ) {
                     var cssFiles = [],
                         contents =  "";
@@ -495,13 +366,14 @@ function buildCSSBundle( project, repo, ref, config ) {
 }
 
 var bjsid = 0;
-function buildJSBundle( project, repo, ref, config, filter ) {
+function buildJSBundle( project, config, filter ) {
     var id = bjsid ++;
     console.log( "buildJSBundle["+id+"]()" );
     var promise = new Promise(),
         baseUrl = config.baseUrl,
-        wsDir = getWorkspaceDirSync( project, repo, ref ),
+        wsDir = project.getWorkspaceDirSync(),
         out = config.out;
+
     path.exists( out, function ( exists ) {
         if ( exists ) {
             console.log( "buildJSBundle: resolving promise" );
@@ -553,8 +425,18 @@ function buildJSBundle( project, repo, ref, config, filter ) {
     return promise;
 }
 
-app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
-    var include = req.param( "include", "main" ).split( "," ).sort(),
+function buildZipBundle( project, config, filter )  {
+    console.log( "buildZipBundle()" );
+    var promise = new Promise(),
+        baseUrl = config.baseUrl,
+        out = config.out;
+
+    return promise;
+}
+
+app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
+    var project = new Project( req.params.owner, req.params.repo, req.params.ref ),
+        include = req.param( "include", "main" ).split( "," ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         optimize = req.param( "optimize", "none" ),
         baseUrl = req.param( "baseUrl", "." ),
@@ -565,7 +447,7 @@ app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
         mimetype = mime.lookup( ext ),
         filter = req.param( "filter" ),
         shasum = crypto.createHash( 'sha1' ),
-        wsDir   = getWorkspaceDirSync( req.params.project, req.params.repo, req.params.ref ),
+        wsDir   = project.getWorkspaceDirSync(),
         dstDir, dstFile, digest;
 
     // var baseUrlFilters[baseUrl] = require(path.join(baseUrl, 'somemagicnameOrpackage.jsonEntry.js'));
@@ -586,7 +468,7 @@ app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
 
     digest = shasum.digest( 'hex' );
 
-    dstDir = getCompiledDirSync( req.params.project, req.params.repo, req.params.ref );
+    dstDir = project.getCompiledDirSync();
     dstFile = path.join( dstDir, digest + ext );
 
     config.out = dstFile;
@@ -599,10 +481,12 @@ app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
     }
 
     function buildBundle() {
-        if ( mimetype === "text/css" ) {
-            bundlePromises[ digest ] = buildCSSBundle( req.params.project, req.params.repo, req.params.ref, config );
+        if ( mimetype === "application/zip" ) {
+            bundlePromises[ digest ] = buildZipBundle( project, config );
+        } else if ( mimetype === "text/css" ) {
+            bundlePromises[ digest ] = buildCSSBundle( project, config );
         } else {
-            bundlePromises[ digest ] = buildJSBundle( req.params.project, req.params.repo, req.params.ref, config, filter );
+            bundlePromises[ digest ] = buildJSBundle( project, config, filter );
         }
         bundlePromises[ digest ].then( onBundleBuilt, onBundleBuildError );
     }
@@ -627,13 +511,14 @@ app.get( '/v1/bundle/:project/:repo/:ref/:name?', function ( req, res ) {
     }
 });
 
-app.get( '/v1/dependencies/:project/:repo/:ref', function ( req, res ) {
-    var wsDir = getWorkspaceDirSync( req.params.project, req.params.repo, req.params.ref ),
+app.get( '/v1/dependencies/:owner/:repo/:ref', function ( req, res ) {
+    var project = new Project( req.params.owner, req.params.repo, req.params.ref ),
+        wsDir = getWorkspaceDirSync( project ),
         names = req.param( "names", "" ).split( "," ).filter( function(name) {return !!name} ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         baseUrl = path.normalize( path.join( wsDir, req.param( "baseUrl", "." ) ) );
 
-    buildDependencyMap( req.params.project, req.params.repo, req.params.ref, baseUrl, names )
+    buildDependencyMap( project, baseUrl, names )
         .then( function( content ) {
             res.header( "Access-Control-Allow-Origin", "*");
             res.json( content );
