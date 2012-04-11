@@ -32,7 +32,7 @@
     "mime": "latest",
     "node-promise": "latest",
     "request": "latest",
-    "requirejs": "1.0.8",
+    "requirejs": ">=1.0.7",
     "rimraf": "latest",
     "underscore": "latest",
     "node-native-zip": "~1.0.1"
