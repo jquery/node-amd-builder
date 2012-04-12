@@ -47,7 +47,7 @@ app.get( '/', function ( req, res ) {
 
 app.post( '/post_receive', function ( req, res ) {
     var payload = req.body.payload,
-        owner, repo, repoUrl, ref,
+        owner, repo, repoUrl, ref, project,
         fetchIfExists = function( candidates, callback ) {
             var dir = candidates.shift();
             path.exists( dir , function( exists ) {
@@ -77,7 +77,7 @@ app.post( '/post_receive', function ( req, res ) {
             repo = payload.repository.name;
             repoUrl = url.parse( payload.repository.url );
             owner = path.dirname( repoUrl.path ).substring( 1 );
-            ref = payload.ref.split( "/" ).pop(),
+            ref = payload.ref.split( "/" ).pop();
             project = new Project( owner, repo, ref );
 
             if ( project ) {
