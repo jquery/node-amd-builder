@@ -290,13 +290,22 @@ function buildDependencyMap( project, baseUrl, include ) {
     return promise;
 }
 
-function buildCSSBundle( project, config, name, optimize ) {
+function applyFilter( baseUrl, filter, contents, ext, callback ) {
+    var filterPath;
+    if ( filter ) {
+        require( path.join( baseUrl, filter ) )( contents, ext, callback );
+    } else {
+        callback( null, contents );
+    }
+}
+
+function buildCSSBundle( project, config, name, filter, optimize ) {
     console.log( "buildCSSBundle()" );
     var promise = new Promise(),
         baseUrl = config.baseUrl,
         include = config.include,
         shasum = crypto.createHash( 'sha1' ),
-        baseOut = path.join( project.getCompiledDirSync(), name + ".css" ),
+        baseOut      = path.join( project.getCompiledDirSync(), name + ".css" ),
         optimizedOut = path.join( project.getCompiledDirSync(), name + ".min.css" ),
         out = optimize ? optimizedOut : baseOut;
 
@@ -311,7 +320,7 @@ function buildCSSBundle( project, config, name, optimize ) {
                     var cssFiles = [],
                         contents =  "";
 
-                    async.series([
+                    async.waterfall([
                         function( next ) {
                             async.forEach( include, function( module, done ) {
                                 var addCssDependencies = function( m ) {
@@ -345,7 +354,9 @@ function buildCSSBundle( project, config, name, optimize ) {
                                 }
                             });
                             contents = contents.trim();
-
+                            applyFilter( baseUrl, filter, contents, ".css", next );
+                        },
+                        function ( contents, next ) {
                             fs.writeFile( baseOut, contents, 'utf8', next );
                         },
                         function( next ) {
@@ -357,14 +368,19 @@ function buildCSSBundle( project, config, name, optimize ) {
                                         optimizeCss: "standard"
                                     },
                                     function( response ) {
-                                        next();
+                                        fs.readFile( optimizedOut, "utf-8", next );
                                     }
                                 );
                             } catch ( e ){
                                 next( e.toString() );
                             }
+                        },
+                        function( contents, next ) {
+                            applyFilter( baseUrl, filter, contents, ".min.css", next );
+                        },
+                        function ( contents, next ) {
+                            fs.writeFile( optimizedOut, contents, 'utf8', next );
                         }
-
                     ], function( err ) {
                         if( err ) {
                             promise.reject( err );
@@ -390,7 +406,8 @@ function buildJSBundle( project, config, name, filter, optimize ) {
     var promise = new Promise(),
         baseUrl = config.baseUrl,
         wsDir = project.getWorkspaceDirSync(),
-        out = path.join( project.getCompiledDirSync(), name + ( optimize ? ".min" : "" ) + ".js" );
+        ext = ( optimize ? ".min" : "" ) + ".js",
+        out = path.join( project.getCompiledDirSync(), name + ext );
 
     path.exists( out, function ( exists ) {
         if ( exists ) {
@@ -432,12 +449,9 @@ function buildJSBundle( project, config, name, filter, optimize ) {
                 },
                 function ( contents, next ) {
                     console.log( "buildJSBundle["+id+"](): step 4" );
-                    var filterPath = path.join( baseUrl, filter );
-                    if ( filter ) {
-                        filters[ wsDir ] = filters[ wsDir ] || {};
-                        filters[ wsDir ][ filterPath ] = require( filterPath );
-                        contents = filters[ wsDir ][ filterPath ]( contents );
-                    }
+                    applyFilter( baseUrl, filter, contents, ext, next );
+                },
+                function( contents, next ) {
                     fs.writeFile( out, contents, 'utf8', next );
                 }
             ], function( err ) {
@@ -465,8 +479,8 @@ function buildZipBundle( project, name, config, digest, filter )  {
             promise.resolve( out );
         } else {
             promiseUtils.all([
-                buildCSSBundle( project, config, digest ),
-                buildCSSBundle( project, config, digest, true ),
+                buildCSSBundle( project, config, digest, filter ),
+                buildCSSBundle( project, config, digest, filter, true ),
                 buildJSBundle( project, config, digest, filter ),
                 buildJSBundle( project, config, digest, filter, true )
             ]).then(
@@ -525,7 +539,8 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
         exclude: exclude,
         pragmas: pragmas,
         pragmasOnSave: pragmasOnSave,
-        skipModuleInsertion: req.param( "skipModuleInsertion", false )
+        skipModuleInsertion: req.param( "skipModuleInsertion", "false" ) === "true" ,
+        preserveLicenseComments: req.param( "preserveLicenseComments", "true" ) === "true"
 	};
 
     shasum.update( JSON.stringify( config ) );
@@ -557,7 +572,7 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
         if ( mimetype === "application/zip" ) {
             bundlePromises[ hash ] = buildZipBundle( project, name, config, digest, filter );
         } else if ( mimetype === "text/css" ) {
-            bundlePromises[ hash  ] = buildCSSBundle( project, config, digest, optimize );
+            bundlePromises[ hash  ] = buildCSSBundle( project, config, digest, filter, optimize );
         } else {
             bundlePromises[ hash ] = buildJSBundle( project, config, digest, filter, optimize );
         }
