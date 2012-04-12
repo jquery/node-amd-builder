@@ -296,7 +296,9 @@ function buildCSSBundle( project, config, name, optimize ) {
         baseUrl = config.baseUrl,
         include = config.include,
         shasum = crypto.createHash( 'sha1' ),
-        out = path.join( project.getCompiledDirSync(), name + ( optimize ? ".min" : "") + ".css" );
+        baseOut = path.join( project.getCompiledDirSync(), name + ".css" ),
+        optimizedOut = path.join( project.getCompiledDirSync(), name + ".min.css" ),
+        out = optimize ? optimizedOut : baseOut;
 
     path.exists( out, function ( exists ) {
         if ( exists ) {
@@ -344,16 +346,25 @@ function buildCSSBundle( project, config, name, optimize ) {
                             });
                             contents = contents.trim();
 
-                            if ( optimize ) {
-//                            requirejs.tools.useLib( function ( r ) {
-//                                r( [ 'optimize' ], function ( optimize ) {
-
-//                                })
-//                            });
+                            fs.writeFile( baseOut, contents, 'utf8', next );
+                        },
+                        function( next ) {
+                            try {
+                                requirejs.optimize(
+                                    {
+                                        cssIn: baseOut,
+                                        out: optimizedOut,
+                                        optimizeCss: "standard"
+                                    },
+                                    function( response ) {
+                                        next();
+                                    }
+                                );
+                            } catch ( e ){
+                                next( e.toString() );
                             }
-
-                            fs.writeFile( out, contents, 'utf8', next );
                         }
+
                     ], function( err ) {
                         if( err ) {
                             promise.reject( err );
@@ -402,9 +413,15 @@ function buildJSBundle( project, config, name, filter, optimize ) {
                 function( next ) {
                     console.log( "buildJSBundle["+id+"](): step 2" );
                     try {
-                        requirejs.optimize( _.extend( { out: out, optimize: ( optimize ? "uglify" : "none" ) }, config ), function( response ) {
-                            next( null, response );
-                        });
+                        requirejs.optimize(
+                            _.extend({
+                                out: out,
+                                optimize: ( optimize ? "uglify" : "none" )
+                            }, config ),
+                            function( response ) {
+                                next( null, response );
+                            }
+                        );
                     } catch ( e ){
                         next( e.toString() );
                     }
@@ -449,6 +466,7 @@ function buildZipBundle( project, name, config, digest, filter )  {
         } else {
             promiseUtils.all([
                 buildCSSBundle( project, config, digest ),
+                buildCSSBundle( project, config, digest, true ),
                 buildJSBundle( project, config, digest, filter ),
                 buildJSBundle( project, config, digest, filter, true )
             ]).then(
@@ -458,7 +476,7 @@ function buildZipBundle( project, name, config, digest, filter )  {
                     async.series([
                         function( next ) {
                             archive.addFiles(
-                                [ ".css", ".js", ".min.js" ]
+                                [ ".css", ".min.css", ".js", ".min.js" ]
                                     .map(
                                     function( ext ) {
                                         return { name: basename + ext, path: path.join( project.getCompiledDirSync(), digest + ext ) };
