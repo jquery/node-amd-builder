@@ -34,12 +34,16 @@ app.configure('production', function(){
 
 app.use(express.bodyParser());
 
-//function loadConfig() {
-//    config = JSON.parse( fs.readFileSync( configFilename, 'utf8' ) );
-//}
-//
-//loadConfig();
-//fs.watchFile( configFilename, { persistent: true, interval: 500 }, loadConfig);
+function afterProjectCheckout( project ) {
+    var wsDir = project.getWorkspaceDirSync(),
+        filterPath;
+    for ( filterPath in filters[ wsDir ] ) {
+        delete require.cache[ filterPath ];
+        delete filters[ wsDir ][ filterPath ];
+    }
+    dependenciesPromises = {};
+    bundlePromises = {};
+}
 
 app.get( '/', function ( req, res ) {
     res.send( "<h1 style='text-align: center; font-size: 120px;'>GitHub based AMD web builder</h1>" );
@@ -89,6 +93,7 @@ app.post( '/post_receive', function ( req, res ) {
                     if ( err ) {
                         res.send( err, 500 );
                     } else {
+                        afterProjectCheckout( project );
                         res.send( "OK" );
                     }
                 });
@@ -125,6 +130,7 @@ app.get( '/v1/:owner/:repo/:ref', function ( req, res ) {
             if ( err ) {
                 res.send( err, 500 );
             } else {
+                afterProjectCheckout( project );
                 res.send( "OK" );
             }
         }
@@ -291,7 +297,6 @@ function buildDependencyMap( project, baseUrl, include ) {
 }
 
 function applyFilter( baseUrl, filter, contents, ext, callback ) {
-    var filterPath;
     if ( filter ) {
         require( path.join( baseUrl, filter ) )( contents, ext, callback );
     } else {
@@ -555,6 +560,12 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
     }
 
     digest = shasum.digest( 'hex' );
+    if ( filter ) {
+        // Setting the flag for later clean up
+        filters[ project.getWorkspaceDirSync() ] = filters[ project.getWorkspaceDirSync() ] || {};
+        filters[ project.getWorkspaceDirSync() ][ path.join( baseUrl, filter ) ] = true;
+    }
+
     if ( mimetype === "application/zip" ) {
         hash = digest;
     } else {
