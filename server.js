@@ -525,7 +525,8 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
         include = req.param( "include", "main" ).split( "," ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         optimize = Boolean( req.param( "optimize", false ) ).valueOf(),
-        baseUrl = req.param( "baseUrl", "." ),
+        wrapParam = req.param( "wrap" ),
+        wrap = wrapParam?JSON.parse( wrapParam ) : undefined,
         pragmas = JSON.parse( req.param( "pragmas", "{}" ) ),
         pragmasOnSave = JSON.parse( req.param( "pragmasOnSave", "{}" ) ),
         name = req.params.name || ( req.params.repo + ".js" ),
@@ -534,13 +535,20 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
         filter = req.param( "filter" ),
         shasum = crypto.createHash( 'sha1' ),
         wsDir   = project.getWorkspaceDirSync(),
+        baseUrl =  path.join( wsDir, req.param( "baseUrl", "." ) ),
         dstDir, dstFile, digest, hash;
+
+    if ( wrap ) {
+        wrap.startFile = path.join( baseUrl, wrap.startFile );
+        wrap.endFile = path.join( baseUrl, wrap.endFile );
+    }
 
     // var baseUrlFilters[baseUrl] = require(path.join(baseUrl, 'somemagicnameOrpackage.jsonEntry.js'));
 	var config = {
-		baseUrl: path.join( wsDir, baseUrl ),
+		baseUrl: baseUrl,
 		include: include,
         exclude: exclude,
+        wrap: wrap,
         pragmas: pragmas,
         pragmasOnSave: pragmasOnSave,
         skipModuleInsertion: req.param( "skipModuleInsertion", "false" ) === "true" ,

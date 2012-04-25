@@ -1,7 +1,7 @@
 {
     "name":"amd-builder",
     "description":"A service that builds bundles from AMD projects resources",
-    "version":"0.2.7",
+    "version":"0.2.8",
     "keywords":[
         "jquery mobile",
         "amd",
@@ -32,7 +32,7 @@
         "mime":"latest",
         "node-promise":"latest",
         "request":"latest",
-        "requirejs":">=1.0.7",
+        "requirejs":">=1.0.8",
         "rimraf":"latest",
         "underscore":"latest",
         "node-native-zip":"~1.0.1"
