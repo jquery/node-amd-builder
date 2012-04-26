@@ -28,6 +28,10 @@ URL arguments are:
 
 ```name``` is the name of the file generated it defaults to ```repo```.js
 
+ 1. ```name``` has extension .js (default) calls require.js to build the js bundle
+ 1. ```name``` has extension .css will resolve css dependencies through the ```//css:``` metadata and return a css bundle
+ 1. ```name``` has extension .zip will do all of the above in both optimize and non-optimized and return a zip file with 4 files in it
+
 Builds a bundle for this repository's ref
 
 URL arguments are:
@@ -35,7 +39,7 @@ URL arguments are:
  - ```baseUrl```: The baseUrl for module name to file resolution
  - ```include```: A comma separated list of modules to include in the bundle
  - ```exclude```: A comma separated list of modules to exclude from the bundle
- - ```optimize```: "none" or "uglify"
+ - ```optimize```: true or false
 
 ## License
 
