@@ -352,7 +352,7 @@ function buildCSSBundle( project, config, name, filter, optimize ) {
                             cssFiles.forEach( function( file ) {
                                 contents += "\n";
                                 try {
-                                    contents += cssConcat.concat( file );
+                                    contents += cssConcat.concat( file, { comments: false } );
                                 } catch ( e ) {
                                     next( e.toString() );
                                 }
