@@ -246,13 +246,25 @@ function buildDependencyMap( project, baseUrl, include ) {
                                         },
                                         function( data, next ) {
 //                                            console.log( "buildDependencyMap["+id+"](): step 3.4.2" );
-                                            var attrMatchRE = /^.*\/\/>>\s*\w+\s*:.*$/mg,
-                                                matches = data.match( attrMatchRE );
+                                            var lines = data.split( "\n" ),
+                                                matches = lines.filter( function( line, index ) {
+                                                    return /^.*\/\/>>\s*[^:]+:.*$/.test( line );
+                                                });
                                             if ( matches && matches.length ) {
                                                 matches.forEach( function( meta ) {
-                                                    var attr = meta.replace( /^.*\/\/>>\s*(\w+)\s*:.*$/, "$1" );
-                                                    var attrLabelRE = new RegExp( "^.*" + regexp.escapeString( "//>>" + attr + ":") + "\\s*", "m" );
-                                                    deps[ item ][ attr ] = meta.replace( attrLabelRE, "" ).trim();
+                                                    var attr = meta.replace( /^.*\/\/>>\s*([^:]+):.*$/, "$1" ).trim(),
+                                                        attrLabelRE = new RegExp( "^.*" + regexp.escapeString( "//>>" + attr + ":") + "\\s*", "m" ),
+                                                        value = meta.replace( attrLabelRE, "" ).trim(),
+                                                        namespace, name,
+                                                        indexOfDot = attr.indexOf( "." );
+                                                    if ( indexOfDot > 0 ) { // if there is something before the dot
+                                                        namespace = attr.split( "." )[0];
+                                                        name = attr.substring( indexOfDot+1 );
+                                                        deps[ item ][ namespace ] = deps[ item ][ namespace ] || {};
+                                                        deps[ item ][ namespace ][ name ] = value;
+                                                    } else {
+                                                        deps[ item ][ attr ] = value;
+                                                    }
                                                 });
                                             }
                                             next();
@@ -303,103 +315,159 @@ function applyFilter( baseUrl, filter, contents, ext, callback ) {
     }
 }
 
-function buildCSSBundle( project, config, name, filter, optimize ) {
+function buildCSSBundles( project, config, name, filter, optimize ) {
 //    console.log( "buildCSSBundle()" );
     var promise = new Promise(),
         baseUrl = config.baseUrl,
         include = config.include,
-        shasum = crypto.createHash( 'sha1' ),
-        baseOut      = path.join( project.getCompiledDirSync(), name + ".css" ),
-        optimizedOut = path.join( project.getCompiledDirSync(), name + ".min.css" ),
-        out = optimize ? optimizedOut : baseOut;
+        baseOut = path.join( project.getCompiledDirSync(), name );
 
-    path.exists( out, function ( exists ) {
-        if ( exists ) {
-//            console.log( "buildCSSBundle: resolving promise" );
-            promise.resolve( out );
-        } else {
-            // get the dependency map for all modules
-            buildDependencyMap( project, baseUrl ).then(
-                function( modules ) {
-                    var cssFiles = [],
-                        contents =  "";
+    // get the dependency map for all modules
+    buildDependencyMap( project, baseUrl ).then(
+        function( modules ) {
+            var cssFiles = {
+                    default: []
+                },
+                contents =  {
+                    default: ""
+                },
+                outputFiles = [];
 
-                    async.waterfall([
-                        function( next ) {
-                            async.forEach( include, function( module, done ) {
-                                var addCssDependencies = function( m ) {
-                                    m = m.replace( /^.*!/, "" );  // remove the plugin part
-                                    m = m.replace( /\[.*$/, "" ); // remove the plugin arguments at the end of the path
-                                    m = m.replace( /^\.\//, "" ); // remove the relative path "./"
-                                    if ( modules[ m ] &&  modules[ m ].deps ) {
-                                        modules[ m ].deps.forEach( addCssDependencies );
-                                    }
-                                    if ( modules[ m ] && modules[ m ].css ) {
+            async.waterfall([
+                function( next ) {
+                    var name;
+                    async.forEach( include, function( module, done ) {
+                        var addCssDependencies = function( m ) {
+                            m = m.replace( /^.*!/, "" );  // remove the plugin part
+                            m = m.replace( /\[.*$/, "" ); // remove the plugin arguments at the end of the path
+                            m = m.replace( /^\.\//, "" ); // remove the relative path "./"
+                            if ( modules[ m ] &&  modules[ m ].deps ) {
+                                modules[ m ].deps.forEach( addCssDependencies );
+                            }
+                            if ( modules[ m ] && modules[ m ].css ) {
 //                                        console.log( "Adding: " + modules[ m ].css );
-                                        Array.prototype.push.apply( cssFiles, modules[ m ].css.split(",") );
+                                if ( typeof( modules[ m ].css ) === "string" ) {
+                                    Array.prototype.push.apply( cssFiles.default, modules[ m ].css.split(",") );
+                                } else {
+                                    for ( name in modules[ m ].css ) {
+                                        if ( modules[ m ].css.hasOwnProperty(name) ) {
+                                            cssFiles[ name ] = cssFiles[ name ] || [];
+                                            Array.prototype.push.apply( cssFiles[ name ], modules[ m ].css[ name ].split(",") );
+                                        }
                                     }
-                                };
-                                addCssDependencies( module );
-                                done();
-                            }, next )
-                        },
-                        function( next ) {
+                                }
+                            }
+                        };
+                        addCssDependencies( module );
+                        done();
+                    }, next )
+                },
+                function( next ) {
+                    var keys = Object.keys( cssFiles );
+
+                    keys.forEach( function( name ) {
+                        if ( cssFiles.hasOwnProperty(name) ) {
                             // resolve the file paths
-                            cssFiles = _.uniq( cssFiles ).map( function( s ) {
+                            cssFiles[ name ] = _.uniq( cssFiles[ name ] ).map( function( s ) {
                                 return path.resolve( baseUrl, s.trim() );
                             });
 
-                            cssFiles.forEach( function( file ) {
-                                contents += "\n";
+                            contents[ name ] = "";
+                            cssFiles[ name ].forEach( function( file ) {
+                                contents[ name ] += "\n";
                                 try {
-                                    contents += cssConcat.concat( file, { comments: false } );
+                                    contents[ name ] += cssConcat.concat( file, { comments: false } );
                                 } catch ( e ) {
                                     next( e.toString() );
                                 }
                             });
-                            contents = contents.trim();
-                            applyFilter( baseUrl, filter, contents, ".css", next );
+                            contents[ name ] = contents[ name ].trim();
+                        }
+                    });
+                    next();
+                },
+                function ( next ) {
+                    async.forEach(
+                        Object.keys( contents ),
+                        function( key, callback ) {
+                            var unoptimizedOut = baseOut + ( key === "default"? "" : ( "." + key ) ) + ".css";
+
+                            async.waterfall([
+                                function( step ) {
+                                    applyFilter( baseUrl, filter, contents[ key ], ".css", step );
+                                },
+                                function ( content, step ) {
+                                    fs.writeFile( unoptimizedOut, content, 'utf8', step );
+                                },
+                                function ( step ) {
+                                    if ( !optimize ) {
+                                        outputFiles.push( unoptimizedOut );
+                                    }
+                                    step();
+                                }
+                            ], callback );
+
                         },
-                        function ( contents, next ) {
-                            fs.writeFile( baseOut, contents, 'utf8', next );
-                        },
-                        function( next ) {
+                        next
+                    );
+                },
+                function( next ) {
+                    async.forEach(
+                        Object.keys( contents ),
+                        function( key, callback ) {
+                            var unoptimizedOut = baseOut + ( key === "default"? "" : ( "." + key ) ) + ".css",
+                                optimizedOut = baseOut + ( key === "default"? "" : ( "." + key ) ) + ".min.css";
+
                             try {
                                 requirejs.optimize(
                                     {
-                                        cssIn: baseOut,
+                                        cssIn: unoptimizedOut,
                                         out: optimizedOut,
                                         optimizeCss: "standard"
                                     },
                                     function( response ) {
-                                        fs.readFile( optimizedOut, "utf-8", next );
+                                        async.waterfall([
+                                            function( step ) {
+                                                fs.readFile( optimizedOut, "utf-8", step );
+                                            },
+                                            function( content, step ) {
+                                                applyFilter( baseUrl, filter, content, ".min.css", step );
+                                            },
+                                            function ( content, step ) {
+                                                fs.writeFile( optimizedOut, content, 'utf8', step );
+                                            },
+                                            function ( step ) {
+                                                if ( optimize ) {
+                                                    outputFiles.push( optimizedOut );
+                                                }
+                                                step();
+                                            }
+                                        ], callback );
                                     }
                                 );
                             } catch ( e ){
                                 next( e.toString() );
                             }
                         },
-                        function( contents, next ) {
-                            applyFilter( baseUrl, filter, contents, ".min.css", next );
-                        },
-                        function ( contents, next ) {
-                            fs.writeFile( optimizedOut, contents, 'utf8', next );
-                        }
-                    ], function( err ) {
-                        if( err ) {
-                            promise.reject( err );
-                        } else {
-//                            console.log( "buildCSSBundle: resolving promise" );
-                            promise.resolve( out );
-                        }
-                    });
-                },
-                function( err ) {
-                    promise.reject( err );
+                        next
+                    );
                 }
-            );
+            ], function( err ) {
+                if( err ) {
+                    promise.reject( err );
+                } else {
+                    if ( outputFiles.length > 1 ) {
+                        promise.resolve( outputFiles );
+                    } else {
+                        promise.resolve( outputFiles[ 0 ] );
+                    }
+                }
+            });
+        },
+        function( err ) {
+            promise.reject( err );
         }
-    });
+    );
     return promise;
 }
 
@@ -483,8 +551,8 @@ function buildZipBundle( project, name, config, digest, filter )  {
             promise.resolve( out );
         } else {
             promiseUtils.all([
-                buildCSSBundle( project, config, digest, filter ),
-                buildCSSBundle( project, config, digest, filter, true ),
+                buildCSSBundles( project, config, digest, filter ),
+                buildCSSBundles( project, config, digest, filter, true ),
                 buildJSBundle( project, config, digest, filter ),
                 buildJSBundle( project, config, digest, filter, true )
             ]).then(
@@ -493,15 +561,20 @@ function buildZipBundle( project, name, config, digest, filter )  {
 
                     async.series([
                         function( next ) {
-                            archive.addFiles(
-                                [ ".css", ".min.css", ".js", ".min.js" ]
-                                    .map(
-                                    function( ext ) {
-                                        return { name: basename + ext, path: path.join( project.getCompiledDirSync(), digest + ext ) };
-                                    }
-                                ),
-                                next
-                            );
+                            async.forEachSeries( results, function( bundle, done ) {
+                                var nameInArchive;
+                                if ( typeof( bundle ) === "string" ) {
+                                    nameInArchive = path.basename( bundle ).replace( digest, name.substring( 0, name.lastIndexOf( "." )) );
+                                    archive.addFiles( [{ name: nameInArchive, path: bundle }], done );
+                                } else {
+                                    archive.addFiles(
+                                        bundle.map( function( file ) {
+                                            var nameInArchive = path.basename( file ).replace( digest, name.substring( 0, name.lastIndexOf( "." )) );
+                                            return( { name: nameInArchive, path: file } );
+                                        }), done
+                                    );
+                                }
+                            }, next );
                         },
                         function( next ) {
                             fs.writeFile( out, archive.toBuffer(), next );
@@ -590,7 +663,7 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
         if ( mimetype === "application/zip" ) {
             bundlePromises[ hash ] = buildZipBundle( project, name, config, digest, filter );
         } else if ( mimetype === "text/css" ) {
-            bundlePromises[ hash  ] = buildCSSBundle( project, config, digest, filter, optimize );
+            bundlePromises[ hash ] = buildCSSBundles( project, config, digest, filter, optimize );
         } else {
             bundlePromises[ hash ] = buildJSBundle( project, config, digest, filter, optimize );
         }
@@ -598,16 +671,62 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
     }
 
     function onBundleBuilt( bundle ) {
-        path.exists( bundle, function ( exists ) {
-            if ( exists ) {
+        var out,
+            promise = new Promise();
+
+        // Set up our promise callbacks
+        promise.then(
+            function( fileOnDisk, name ) {
                 res.header( "Access-Control-Allow-Origin", "*");
-                res.download( bundle, name );
-            } else {
+                res.download( fileOnDisk, name );
+            },
+            function() {
                 // Try to land back on our feet if for some reasons the built bundle got cleaned up;
                 delete bundlePromises[ hash ];
                 buildBundle();
             }
-        });
+        );
+
+        if ( typeof( bundle ) === "string" ) {
+            path.exists( bundle, function ( exists ) {
+                if ( exists ) {
+                    promise.resolve( bundle, name );
+                } else {
+                    promise.reject();
+                }
+            });
+        } else {
+            out = path.join( project.getCompiledDirSync(), digest + ext + ".zip" );
+            path.exists( out, function ( exists ) {
+                var archive;
+                if ( exists ) {
+                    promise.resolve( out, name );
+                } else {
+                    archive = new zip();
+                    async.series([
+                        function( next ) {
+                            archive.addFiles(
+                                bundle.map( function( file ) {
+                                    var nameInArchive = path.basename( file ).replace( digest, name.substring( 0, name.lastIndexOf( "." )) );
+                                    return( { name: nameInArchive, path: file } );
+                                }),
+                                next
+                            );
+                        },
+                        function( next ) {
+                           fs.writeFile( out, archive.toBuffer(), next );
+                        }
+                    ],
+                    function( err ) {
+                        if( err ) {
+                            promise.reject();
+                        } else {
+                            promise.resolve( out, name + ".zip" );
+                        }
+                    });
+               }
+            });
+        }
     }
 
     if ( !bundlePromises[ hash ] ) {
