@@ -676,9 +676,9 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
 
         // Set up our promise callbacks
         promise.then(
-            function( fileOnDisk, name ) {
+            function( bundleInfo ) {
                 res.header( "Access-Control-Allow-Origin", "*");
-                res.download( fileOnDisk, name );
+                res.download( bundleInfo.path, bundleInfo.name );
             },
             function() {
                 // Try to land back on our feet if for some reasons the built bundle got cleaned up;
@@ -690,7 +690,7 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
         if ( typeof( bundle ) === "string" ) {
             path.exists( bundle, function ( exists ) {
                 if ( exists ) {
-                    promise.resolve( bundle, name );
+                    promise.resolve( { path: bundle, name: name } );
                 } else {
                     promise.reject();
                 }
@@ -700,7 +700,7 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
             path.exists( out, function ( exists ) {
                 var archive;
                 if ( exists ) {
-                    promise.resolve( out, name );
+                    promise.resolve( { path: out, name: name } );
                 } else {
                     archive = new zip();
                     async.series([
@@ -721,7 +721,7 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
                         if( err ) {
                             promise.reject();
                         } else {
-                            promise.resolve( out, name + ".zip" );
+                            promise.resolve( { path: out, name: name + ".zip" } );
                         }
                     });
                }
