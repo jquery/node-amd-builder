@@ -410,32 +410,35 @@ function buildCSSBundles( project, config, name, filter, optimize ) {
 
             async.waterfall([
                 function( next ) {
-                    var name;
-                    async.forEach( include, function( module, done ) {
-                        var addCssDependencies = function( m ) {
-                            m = m.replace( /^.*!/, "" );  // remove the plugin part
-                            m = m.replace( /\[.*$/, "" ); // remove the plugin arguments at the end of the path
-                            m = m.replace( /^\.\//, "" ); // remove the relative path "./"
-                            if ( modules[ m ] &&  modules[ m ].deps ) {
+                    var name,
+                        processed = {},
+                        addCssDependencies = function( m ) {
+                            processed[ m ] = true;
+                            if ( !processed[ m ] && modules[ m ] &&  modules[ m ].deps ) {
                                 modules[ m ].deps.forEach( addCssDependencies );
                             }
                             if ( modules[ m ] && modules[ m ].css ) {
-//                                        console.log( "Adding: " + modules[ m ].css );
                                 if ( typeof( modules[ m ].css ) === "string" ) {
-                                    Array.prototype.push.apply( cssFiles.default, modules[ m ].css.split(",") );
+//                                    console.log( "Adding: " + modules[ m ].css );
+                                    cssFiles.default = _.union( cssFiles.default, modules[ m ].css.split(",") );
                                 } else {
                                     for ( name in modules[ m ].css ) {
-                                        if ( modules[ m ].css.hasOwnProperty(name) ) {
+                                        if ( modules[ m ].css.hasOwnProperty( name ) ) {
                                             cssFiles[ name ] = cssFiles[ name ] || [];
-                                            Array.prototype.push.apply( cssFiles[ name ], modules[ m ].css[ name ].split(",") );
+//                                            console.log( "Adding css." + name + ": " + modules[ m ].css[ name ] );
+                                            cssFiles[ name ] = _.union( cssFiles[ name ], modules[ m ].css[ name ].split(",") );
                                         }
                                     }
                                 }
                             }
                         };
-                        addCssDependencies( module );
-                        done();
-                    }, next )
+
+                    async.forEach( include,
+                        function( module, done ) {
+                            addCssDependencies( module );
+                            done();
+                        }, next
+                    );
                 },
                 function( next ) {
                     var keys = Object.keys( cssFiles );
