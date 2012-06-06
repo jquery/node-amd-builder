@@ -144,7 +144,71 @@ function buildDependencyMap( project, baseUrl, include ) {
     var promise = new Promise(),
         shasum = crypto.createHash( 'sha1' ),
         compileDir = project.getCompiledDirSync(),
-        filename = "";
+        filename = "",
+        getFiles = function( dir, filterFn, mapFn, callback ) {
+            fs.readdir( dir, function( err, dirEntries ) {
+//                    console.log( "buildDependencyMap["+id+"](): step 1.1" );
+                var filteredFiles, include;
+
+                if ( err ) {
+                    callback( err );
+                } else {
+                    async.waterfall([
+                        function( next ) {
+                            //Filter directories
+                            async.filter( dirEntries,
+                                function( dirEntry, callback ) {
+                                    fs.stat( path.join( dir, dirEntry ), function( err, stats ) {
+                                        if ( err ) {
+                                            callback( false );
+                                        } else {
+                                            callback( stats.isDirectory() );
+                                        }
+                                    });
+                                }, function( results ) {
+                                    next( null, results );
+                                }
+                            );
+                        },
+                        function( dirs, next ) {
+                            async.map( dirs,
+                                function( dirName, callback ) {
+                                    callback( null, path.join( dir, dirName ) );
+                                }, next );
+                        },
+                        function( dirs, next ) {
+                            async.concat( dirs,
+                                function( subdir, cb ) {
+                                    getFiles( subdir, filterFn, mapFn, cb );
+                                }, next
+                            );
+                        },
+                        function( modules, next ) {
+                            async.filter( dirEntries,
+                                function( item, callback ) {
+                                    callback( filterFn( item ) );
+                                },
+                                function( filteredFiles ) {
+                                    next( null, modules, filteredFiles );
+                                }
+                            );
+                        },
+                        function( modules, filteredFiles, next ) {
+                            async.map( filteredFiles,
+                                function( item, callback ) {
+                                    callback( null, mapFn( path.join( dir, item ) ) );
+                                },
+                                function( err, results ) {
+                                    next( err, modules.concat( results ) );
+                                }
+                            );
+                        }
+                    ], function( err, results ) {
+                        callback( err, results );
+                    });
+                }
+            });
+        };
 
     async.waterfall([
         function( next ) {
@@ -153,16 +217,19 @@ function buildDependencyMap( project, baseUrl, include ) {
             if ( include && include.length > 0 ) {
                 next();
             } else {
-                fs.readdir( baseUrl, function( err, files ) {
-//                    console.log( "buildDependencyMap["+id+"](): step 1.1" );
-                    if ( err ) {
+                getFiles( baseUrl,
+                    function( file ) {
+                        return path.extname( file ) === ".js";
+                    },
+                    function( file ) {
+                        var relPath = path.relative( baseUrl, file );
+                        return relPath.substring( 0, relPath.length - ".js".length );
+                    },
+                    function( err, modules ) {
+                        include = modules;
                         next( err );
-                    } else {
-                        files = files.filter( function( file ) { return path.extname( file ) === ".js" } );
-                        include = files.map( function( file ) { return path.basename( file, ".js" ) } );
-                        next();
                     }
-                });
+                );
             }
         },
         function( next ) {
@@ -212,14 +279,20 @@ function buildDependencyMap( project, baseUrl, include ) {
 //                            console.log( "buildDependencyMap["+id+"](): step 3.3" );
                             var deps = {};
                             async.forEach( include, function ( name, done ) {
-                                var fileName = path.join( baseUrl, name + ".js" );
+                                var fileName = path.join( baseUrl, name + ".js" ),
+                                    dirName = path.dirname( fileName );
 //                                console.log( "Processing: " + fileName );
                                 fs.readFile( fileName, 'utf8', function( err, data ) {
                                     if ( err ) {
                                         callback( err );
                                     }
                                     deps[ name ] = {};
-                                    deps[ name ].deps = parse.findDependencies( fileName, data );
+                                    deps[ name ].deps = parse.findDependencies( fileName, data ).map(
+                                        function( module ) {
+                                            // resolve relative paths
+                                            return path.relative( baseUrl, path.resolve( dirName, module ));
+                                        }
+                                    );
                                     done();
                                 });
                             }, function( err ) {
@@ -290,10 +363,12 @@ function buildDependencyMap( project, baseUrl, include ) {
                         }
                     ], next );
                 } else {
-                    dependenciesPromises[ digest ].then( function( data ) {
-                        next( null, data );
-                    },
-                    next );
+                    dependenciesPromises[ digest ].then(
+                        function( data ) {
+                            next( null, data );
+                        },
+                        next
+                    );
                 }
             }
         }
