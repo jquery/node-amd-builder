@@ -146,6 +146,8 @@ function buildDependencyMap( project, baseUrl, include ) {
         compileDir = project.getCompiledDirSync(),
         filename = "",
         getFiles = function( dir, filterFn, mapFn, callback ) {
+            // Recurse through directories in dir and collect a list of files that gets filtered by filterFn
+            // The resulting list is processed by mapFn (remove extension for instance)
             fs.readdir( dir, function( err, dirEntries ) {
 //                    console.log( "buildDependencyMap["+id+"](): step 1.1" );
                 var filteredFiles, include;
@@ -718,6 +720,9 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
     }
 
     digest = shasum.digest( 'hex' );
+
+    console.log( digest + ": " + JSON.stringify( config ) );
+
     if ( filter ) {
         // Setting the flag for later clean up
         filters[ project.getWorkspaceDirSync() ] = filters[ project.getWorkspaceDirSync() ] || {};
