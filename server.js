@@ -30,7 +30,7 @@ app.configure('development', function(){
 });
 
 app.configure('production', function(){
-    app.use( express.logger( { format: ':remote-addr [:date] - :req[host] - :status ":method :url :http-version" - ":referrer" - ":user-agent"' } ) );
+    app.use( express.logger( { format: '[:date] - :status ":method :url" - :response-time ms' } ) );
 });
 
 app.use(express.bodyParser());
