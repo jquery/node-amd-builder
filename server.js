@@ -30,6 +30,7 @@ app.configure('development', function(){
 });
 
 app.configure('production', function(){
+    app.use( express.logger( 'tiny' ) );
 });
 
 app.use(express.bodyParser());
