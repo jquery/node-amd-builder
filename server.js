@@ -266,7 +266,7 @@ function buildDependencyMap( project, baseUrl, include ) {
                                 if ( err && err.code != "EEXIST" ) {
                                     cb( err );
                                 } else {
-                                    cb( null );
+                                    cb();
                                 }
                             });
                         },
@@ -463,6 +463,10 @@ function buildCSSBundles( project, config, name, filter, optimize ) {
                                 }
                             });
                             contents[ name ] = contents[ name ].trim();
+                            if ( contents[ name ].length === 0 ) {
+//                                delete contents[ name ];
+//                                delete cssFiles[ name ];
+                            }
                         }
                     });
                     next();
