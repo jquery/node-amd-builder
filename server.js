@@ -55,7 +55,7 @@ app.post( '/post_receive', function ( req, res ) {
         owner, repo, repoUrl, ref, project,
         fetchIfExists = function( candidates, callback ) {
             var dir = candidates.shift();
-            path.exists( dir , function( exists ) {
+            fs.exists( dir , function( exists ) {
                 if ( exists ) {
                     fetch( dir,
                         function ( error, stdout, stderr ) {
@@ -242,7 +242,7 @@ function buildDependencyMap( project, baseUrl, include ) {
 
             filename += path.join(compileDir, "deps-" + digest + ".json" );
 
-            path.exists( filename, function( exists ) {
+            fs.exists( filename, function( exists ) {
                 next( null, digest, exists )
             });
         },
@@ -566,7 +566,7 @@ function buildJSBundle( project, config, name, filter, optimize ) {
         ext = ( optimize ? ".min" : "" ) + ".js",
         out = path.join( project.getCompiledDirSync(), name + ext );
 
-    path.exists( out, function ( exists ) {
+    fs.exists( out, function ( exists ) {
         if ( exists ) {
 //            console.log( "buildJSBundle: resolving promise" );
             promise.resolve( out );
@@ -631,7 +631,7 @@ function buildZipBundle( project, name, config, digest, filter )  {
         basename = path.basename( name, ".zip" ),
         out = path.join( project.getCompiledDirSync(), digest + ".zip" );
 
-    path.exists( out, function ( exists ) {
+    fs.exists( out, function ( exists ) {
         if ( exists ) {
             promise.resolve( out );
         } else {
@@ -776,7 +776,7 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
         );
 
         if ( typeof( bundle ) === "string" ) {
-            path.exists( bundle, function ( exists ) {
+            fs.exists( bundle, function ( exists ) {
                 if ( exists ) {
                     promise.resolve( { path: bundle, name: name } );
                 } else {
@@ -785,7 +785,7 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
             });
         } else {
             out = path.join( project.getCompiledDirSync(), digest + ext + ".zip" );
-            path.exists( out, function ( exists ) {
+            fs.exists( out, function ( exists ) {
                 var archive;
                 if ( exists ) {
                     promise.resolve( { path: out, name: name } );
