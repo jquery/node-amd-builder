@@ -30,6 +30,7 @@
         "css-concat":"latest",
         "express":"2.5.2",
         "mime":"latest",
+        "optimist":"latest",
         "node-promise":"latest",
         "request":"latest",
         "requirejs":"1.0.8",
@@ -37,11 +38,8 @@
         "underscore":"latest",
         "node-native-zip":"~1.0.1"
     },
-    "scripts":{
-        "start":"REPO_BASE_DIR=/home/node/repositories WORK_BASE_DIR=/home/node/src node server.js"
-    },
     "main":"server.js",
     "engine":{
-        "node":"~0.6.11"
+        "node":"~0.8.6"
     }
 }
