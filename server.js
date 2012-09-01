@@ -10,7 +10,6 @@ var _ = require( 'underscore' ),
     fs = require( 'fs' ),
     mime = require( 'mime' ),
     path = require( 'path' ),
-    Project = require( './lib/project' ).Project,
     promiseUtils = require( 'node-promise' ),
     Promise = require( 'node-promise').Promise,
     when = require( 'node-promise').when,
@@ -19,10 +18,30 @@ var _ = require( 'underscore' ),
     url = require( 'url' ),
     zip = require("node-native-zip" );
 
-var httpPort = process.env.PORT || 8080,
-    filters = {},
-    bundlePromises = {},
-    dependenciesPromises = {};
+var argv = require( 'optimist' )
+	.demand( 'r' )
+	.alias( 'r', 'repo-dir')
+	.describe( 'r', "Root directory for barebone repositories" )
+	.demand( 's' )
+	.alias( 's', 'staging-dir')
+	.describe( 's', "Root directory for workspaces" )
+	.options( 'p', {
+		alias: "port",
+		default: 3000
+	})
+	.usage( 'Usage: $0 -r <path> -s <path> [-p <port>]')
+	.argv;
+
+var httpPort = argv.port || 3000,
+	Project = require( './lib/project' )
+		.repoDir( argv.r || process.env.REPO_BASE_DIR )
+		.stagingDir( argv.s || process.env.WORK_BASE_DIR )
+		.Project,
+	filters = {},
+	bundlePromises = {},
+	dependenciesPromises = {};
+
+console.log( "Starting up with repos in '", argv.r, "' and workspaces in '", argv.s, "'");
 
 app.configure('development', function(){
     app.use( express.errorHandler({ dumpExceptions: true, showStack: true }) );
