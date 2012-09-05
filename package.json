@@ -30,6 +30,7 @@
         "css-concat":"latest",
         "express":"2.5.2",
         "mime":"latest",
+        "logger": "git://github.com/jquery/node-logger.git",
         "optimist":"latest",
         "node-promise":"latest",
         "request":"latest",
