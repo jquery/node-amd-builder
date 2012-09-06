@@ -240,6 +240,9 @@ function buildDependencyMap( project, baseUrl, include ) {
         };
 
     async.waterfall([
+		function( next ) {
+			project.checkoutIfEmpty( next );
+		},
         function( next ) {
 //            logger.log( "buildDependencyMap["+id+"](): step 1" );
             // If no name is provided, scan the baseUrl for js files and return the dep map for all JS objects in baseUrl
