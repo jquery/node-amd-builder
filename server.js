@@ -108,7 +108,7 @@ app.post( '/post_receive', function ( req, res ) {
 
             if ( project ) {
                 async.series([
-                    _.bind( project.remoteUpdate, project ),
+                    _.bind( project.fetch, project ),
                     _.bind( project.checkout, project )
                 ],
                 function ( err ) {
@@ -137,7 +137,7 @@ app.get( '/v1/:owner/:repo', function ( req, res ) {
 	logger.log( "Fetching " + req.params.owner + "/" + req.params.repo );
     var project = new Project( req.params.owner, req.params.repo );
     async.waterfall([
-        _.bind( project.remoteUpdate, project ),
+        _.bind( project.fetch, project ),
         function ( out ) {
             res.send( ( out?"\n":"" ) + "OK" );
         }
