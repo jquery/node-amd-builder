@@ -16,6 +16,7 @@ var _ = require( 'underscore' ),
     when = require( 'node-promise').when,
     regexp = require( './lib/regexp' ),
 	requirejs = require( 'requirejs' ),
+    semver = require( 'semver' ),
     url = require( 'url' ),
     zip = require("node-native-zip" );
 
@@ -56,6 +57,7 @@ app.configure('production', function(){
 app.use(express.bodyParser());
 
 function afterProjectCheckout( project ) {
+    // Clear caches
     var wsDir = project.getWorkspaceDirSync(),
         filterPath;
     for ( filterPath in filters[ wsDir ] ) {
@@ -72,7 +74,7 @@ app.get( '/', function ( req, res ) {
 
 app.post( '/post_receive', function ( req, res ) {
     var payload = req.body.payload,
-        owner, repo, repoUrl, ref, project,
+        owner, repo, repoUrl, ref, refType, refName, project,
         fetchIfExists = function( candidates, callback ) {
             var dir = candidates.shift();
             fs.exists( dir , function( exists ) {
@@ -90,7 +92,7 @@ app.post( '/post_receive', function ( req, res ) {
                     if ( candidates.length ) {
                         fetchIfExists( candidates );
                     } else {
-						logger.error( "Error in post_receive route: Workspace for '" + repo + "' hasn't been checked out" );
+						logger.error( "Error in /post_receive route: Workspace for '" + repo + "' hasn't been checked out" );
                         res.send( "Workspace for '" + repo + "' hasn't been checked out", 404 );
                     }
                 }
@@ -101,19 +103,26 @@ app.post( '/post_receive', function ( req, res ) {
         try {
             payload = JSON.parse( payload );
             repo = payload.repository.name;
-            repoUrl = url.parse( payload.repository.url );
-            owner = path.dirname( repoUrl.path ).substring( 1 );
-            ref = payload.ref.split( "/" ).pop();
-            project = new Project( owner, repo, ref );
+            owner = payload.repository.owner.name;
+            ref = payload.ref.split( "/" );
+            refName = ref.pop();
+            refType = ref.pop();
+            project = new Project( owner, repo, refName );
+
+            if ( refType === "tags" && semver.valid( refName ) != null ) {
+                logger.log( "/post_receive received SEMVER ref: ", refName, "for SHASUM:", payload.after );
+            }
 
             if ( project ) {
                 async.series([
                     _.bind( project.fetch, project ),
-                    _.bind( project.checkout, project )
+                    function( next ) {
+                        project.checkout( refType === "tags" && semver.valid( refName ) != null, next );
+                    }
                 ],
                 function ( err ) {
                     if ( err ) {
-						logger.error( "Error in post_receive route: " + err );
+						logger.error( "Error in /post_receive route: " + err );
                         res.send( err, 500 );
                     } else {
                         afterProjectCheckout( project );
