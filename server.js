@@ -502,8 +502,13 @@ function buildCSSBundles( project, config, name, filter, optimize ) {
                             });
                             contents[ name ] = contents[ name ].trim();
                             if ( contents[ name ].length === 0 ) {
-//                                delete contents[ name ];
-//                                delete cssFiles[ name ];
+                                if ( optimize ) {
+                                    logger.log( name, "CSS file is empty, removing it from optimized bundle" );
+                                } else {
+                                    logger.log( name, "CSS file is empty, removing it from bundle" );
+                                }
+                                delete contents[ name ];
+                                delete cssFiles[ name ];
                             }
                         }
                     });
