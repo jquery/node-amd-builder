@@ -41,6 +41,28 @@ URL arguments are:
  - ```exclude```: A comma separated list of modules to exclude from the bundle
  - ```optimize```: true or false
 
+### Setup an instance for your project
+
+1. Clone a bare repo of your project:
+```
+mkdir <basedir>/repos
+cd <basedir>/repos
+git clone --bare git://github.com/yourname/yourproject.git
+```
+
+1. Now create the staging directory:
+```
+mkdir <basedir>/staging
+```
+1. Install the dependencies with ```npm install```
+
+1. Start the service:
+```
+node server.js -r <basedir>/repos -s <basedir>/staging
+```
+
+1. Add a post_receive hook to the your GitHub repo pointing at ```http://instance:3000/post_receive```
+
 ## License
 
 Copyright (c) 2012, Ghislain Seguin (MIT License)
