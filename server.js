@@ -248,6 +248,9 @@ function buildDependencyMap( project, baseUrl, include ) {
             });
         };
 
+    // Setting baseUrl to absolute
+    baseUrl = path.normalize( path.join( project.getWorkspaceDirSync(), baseUrl ) );
+
     async.waterfall([
 		function( next ) {
 			project.checkoutIfEmpty( next );
@@ -278,7 +281,7 @@ function buildDependencyMap( project, baseUrl, include ) {
             // Generate a sha on the sorted names
             var digest = shasum.update( include.join( "," ) ).digest( "hex" );
 
-            filename += path.join(compileDir, "deps-" + digest + ".json" );
+            filename += path.join( compileDir, "deps-" + digest + ".json" );
 
             fs.exists( filename, function( exists ) {
                 next( null, digest, exists )
@@ -434,12 +437,12 @@ function applyFilter( baseUrl, filter, contents, ext, callback ) {
 function buildCSSBundles( project, config, name, filter, optimize ) {
 //    logger.log( "buildCSSBundle()" );
     var promise = new Promise(),
-        baseUrl = config.baseUrl,
+        baseUrl = path.normalize( path.join( project.getWorkspaceDirSync(), config.baseUrl ) ),
         include = config.include,
         baseOut = path.join( project.getCompiledDirSync(), name );
 
     // get the dependency map for all modules
-    buildDependencyMap( project, baseUrl ).then(
+    buildDependencyMap( project, config.baseUrl ).then(
         function( modules ) {
             var cssFiles = {
                     default: []
@@ -485,7 +488,7 @@ function buildCSSBundles( project, config, name, filter, optimize ) {
                     var keys = Object.keys( cssFiles );
 
                     keys.forEach( function( name ) {
-                        if ( cssFiles.hasOwnProperty(name) ) {
+                        if ( cssFiles.hasOwnProperty( name ) ) {
                             // resolve the file paths
                             cssFiles[ name ] = _.uniq( cssFiles[ name ] ).map( function( s ) {
                                 return path.resolve( baseUrl, s.trim() );
@@ -547,6 +550,13 @@ function buildCSSBundles( project, config, name, filter, optimize ) {
                                 optimizedOut = baseOut + ( key === "default"? "" : ( "." + key ) ) + ".min.css";
 
                             try {
+                                process.chdir( project.getWorkspaceDirSync() );
+                            }
+                            catch ( e1 ) {
+                                next( e1.toString() );
+                            }
+
+                            try {
                                 requirejs.optimize(
                                     {
                                         cssIn: unoptimizedOut,
@@ -573,8 +583,8 @@ function buildCSSBundles( project, config, name, filter, optimize ) {
                                         ], callback );
                                     }
                                 );
-                            } catch ( e ){
-                                next( e.toString() );
+                            } catch ( e2 ){
+                                next( e2.toString() );
                             }
                         },
                         next
@@ -604,7 +614,7 @@ function buildJSBundle( project, config, name, filter, optimize ) {
     var id = bjsid ++;
 //    logger.log( "buildJSBundle["+id+"]()" );
     var promise = new Promise(),
-        baseUrl = config.baseUrl,
+        baseUrl = path.normalize( path.join( project.getWorkspaceDirSync(), config.baseUrl ) ),
         wsDir = project.getWorkspaceDirSync(),
         ext = ( optimize ? ".min" : "" ) + ".js",
         out = path.join( project.getCompiledDirSync(), name + ext );
@@ -630,6 +640,13 @@ function buildJSBundle( project, config, name, filter, optimize ) {
                 function( next ) {
 //                    logger.log( "buildJSBundle["+id+"](): step 2" );
                     try {
+                        process.chdir( project.getWorkspaceDirSync() );
+                    }
+                    catch ( e1 ) {
+                        next( e1.toString() );
+                    }
+
+                    try {
                         requirejs.optimize(
                             _.extend({
                                 out: out,
@@ -639,8 +656,8 @@ function buildJSBundle( project, config, name, filter, optimize ) {
                                 next( null, response );
                             }
                         );
-                    } catch ( e ){
-                        next( e.toString() );
+                    } catch ( e2 ){
+                        next( e2.toString() );
                     }
                 },
                 function( response, next ) {
@@ -727,35 +744,36 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
         include = req.param( "include", "main" ).split( "," ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
         optimize = Boolean( req.param( "optimize", false ) ).valueOf(),
-        wrapParam = req.param( "wrap" ),
-        wrap = wrapParam?JSON.parse( wrapParam ) : undefined,
-        pragmas = JSON.parse( req.param( "pragmas", "{}" ) ),
-        pragmasOnSave = JSON.parse( req.param( "pragmasOnSave", "{}" ) ),
         name = req.params.name || ( req.params.repo + ".js" ),
         ext = (optimize !== "none" ? ".min" : "") + ( path.extname( name ) || ".js" ),
         mimetype = mime.lookup( ext ),
         filter = req.param( "filter" ),
         shasum = crypto.createHash( 'sha1' ),
         wsDir   = project.getWorkspaceDirSync(),
-        baseUrl =  path.join( wsDir, req.param( "baseUrl", "." ) ),
-        dstDir, dstFile, digest, hash;
+        args = _.clone( req.query ),
+        digest, hash;
 
-    if ( wrap ) {
-        wrap.startFile = path.join( baseUrl, wrap.startFile );
-        wrap.endFile = path.join( baseUrl, wrap.endFile );
-    }
+    // Remove config params that need pre-processing or don't belong in the requirejs config
+    [ "include", "exclude", "filter" ].forEach( function( key ) {
+        delete args[ key ];
+    });
+
+    // Parse the config attribute, if it throws it's probably a string, no biggie
+    Object.keys( args ).forEach( function( key ) {
+        try {
+            args[ key ] = JSON.parse( args[ key ] );
+        } catch( e ) {
+            logger.log( "JSON.parse threw parsing '" + key + "': " + e );
+        }
+    });
 
     // var baseUrlFilters[baseUrl] = require(path.join(baseUrl, 'somemagicnameOrpackage.jsonEntry.js'));
-	var config = {
-		baseUrl: baseUrl,
+	var config = _.extend({
 		include: include,
         exclude: exclude,
-        wrap: wrap,
-        pragmas: pragmas,
-        pragmasOnSave: pragmasOnSave,
-        skipModuleInsertion: req.param( "skipModuleInsertion", "false" ) === "true" ,
-        preserveLicenseComments: req.param( "preserveLicenseComments", "true" ) === "true"
-	};
+        skipModuleInsertion: false ,
+        preserveLicenseComments: true
+	}, args );
 
     shasum.update( JSON.stringify( config ) );
     shasum.update( mimetype );
@@ -775,7 +793,7 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
     if ( filter ) {
         // Setting the flag for later clean up
         filters[ project.getWorkspaceDirSync() ] = filters[ project.getWorkspaceDirSync() ] || {};
-        filters[ project.getWorkspaceDirSync() ][ path.join( baseUrl, filter ) ] = true;
+        filters[ project.getWorkspaceDirSync() ][ path.join( wsDir, config.baseUrl, filter ) ] = true;
     }
 
     if ( mimetype === "application/zip" ) {
@@ -872,7 +890,7 @@ app.get( '/v1/dependencies/:owner/:repo/:ref', function ( req, res ) {
     var project = new Project( req.params.owner, req.params.repo, req.params.ref ),
         names = req.param( "names", "" ).split( "," ).filter( function(name) {return !!name} ).sort(),
         exclude = req.param( "exclude", "" ).split( "," ).sort(),
-        baseUrl = path.normalize( path.join( project.getWorkspaceDirSync(), req.param( "baseUrl", "." ) ) );
+        baseUrl = req.param( "baseUrl", "." );
 
     buildDependencyMap( project, baseUrl, names )
         .then( function( content ) {
