@@ -1,7 +1,7 @@
 {
     "name":"amd-builder",
     "description":"A service that builds bundles from AMD projects resources",
-    "version":"0.4.4",
+    "version":"0.4.5",
     "keywords":[
         "jquery mobile",
         "amd",
