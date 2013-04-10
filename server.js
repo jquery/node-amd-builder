@@ -477,12 +477,8 @@ function buildCSSBundles( project, config, name, filter, optimize ) {
                             }
                         };
 
-                    async.forEach( include,
-                        function( module, done ) {
-                            addCssDependencies( module );
-                            done();
-                        }, next
-                    );
+                    include.forEach( addCssDependencies );
+                    next();
                 },
                 function( next ) {
                     var keys = Object.keys( cssFiles );
@@ -594,7 +590,7 @@ function buildCSSBundles( project, config, name, filter, optimize ) {
                 if( err ) {
                     promise.reject( err );
                 } else {
-                    if ( outputFiles.length > 1 ) {
+                    if ( outputFiles.length === 0 || outputFiles.length > 1 ) {
                         promise.resolve( outputFiles );
                     } else {
                         promise.resolve( outputFiles[ 0 ] );
@@ -708,16 +704,20 @@ function buildZipBundle( project, name, config, digest, filter )  {
                         function( next ) {
                             async.forEachSeries( results, function( bundle, done ) {
                                 var nameInArchive;
-                                if ( typeof( bundle ) === "string" ) {
-                                    nameInArchive = path.basename( bundle ).replace( digest, name.substring( 0, name.lastIndexOf( "." )) );
-                                    archive.addFiles( [{ name: nameInArchive, path: bundle }], done );
+                                if ( bundle && bundle.length > 0 ) {
+                                    if ( typeof( bundle ) === "string" ) {
+                                        nameInArchive = path.basename( bundle ).replace( digest, name.substring( 0, name.lastIndexOf( "." )) );
+                                        archive.addFiles( [{ name: nameInArchive, path: bundle }], done );
+                                    } else {
+                                        archive.addFiles(
+                                            bundle.map( function( file ) {
+                                                var nameInArchive = path.basename( file ).replace( digest, name.substring( 0, name.lastIndexOf( "." )) );
+                                                return( { name: nameInArchive, path: file } );
+                                            }), done
+                                        );
+                                    }
                                 } else {
-                                    archive.addFiles(
-                                        bundle.map( function( file ) {
-                                            var nameInArchive = path.basename( file ).replace( digest, name.substring( 0, name.lastIndexOf( "." )) );
-                                            return( { name: nameInArchive, path: file } );
-                                        }), done
-                                    );
+                                    done();
                                 }
                             }, next );
                         },
