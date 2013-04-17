@@ -173,6 +173,16 @@ app.get( '/v1/:owner/:repo/:ref', function ( req, res ) {
     );
 });
 
+function redefineRequireJSLogging() {
+    // Redefine the logging function for r.js
+    requirejs.define( 'node/print', function() {
+        function print( msg ) {
+            logger.log( "r.js: " + msg );
+        }
+        return print;
+    });
+}
+
 var bid = 0;
 function buildDependencyMap( project, baseUrl, include ) {
     var id = bid++;
@@ -313,6 +323,8 @@ function buildDependencyMap( project, baseUrl, include ) {
                         },
                         function( cb ) {
 //                            logger.log( "buildDependencyMap["+id+"](): step 3.2" );
+                            redefineRequireJSLogging();
+
                             requirejs.tools.useLib( function ( r ) {
                                 r( [ 'parse' ], function ( parse ) {
                                     cb( null, parse );
@@ -552,6 +564,8 @@ function buildCSSBundles( project, config, name, filter, optimize ) {
                                 next( e1.toString() );
                             }
 
+                            redefineRequireJSLogging();
+
                             try {
                                 requirejs.optimize(
                                     {
@@ -642,11 +656,14 @@ function buildJSBundle( project, config, name, filter, optimize ) {
                         next( e1.toString() );
                     }
 
+                    redefineRequireJSLogging();
+
                     try {
                         requirejs.optimize(
                             _.extend({
                                 out: out,
-                                optimize: ( optimize ? "uglify" : "none" )
+                                optimize: ( optimize ? "uglify" : "none" ),
+                                logLevel: 0
                             }, config ),
                             function( response ) {
                                 next( null, response );
