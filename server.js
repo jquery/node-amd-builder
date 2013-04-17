@@ -2,7 +2,7 @@
 
 var _ = require( 'underscore' ),
     express = require( 'express' ),
-    app = express.createServer(),
+    app = express(),
     async = require( 'async'),
     crypto = require( 'crypto' ),
     cssConcat = require( 'css-concat' ),
@@ -571,7 +571,8 @@ function buildCSSBundles( project, config, name, filter, optimize ) {
                                     {
                                         cssIn: unoptimizedOut,
                                         out: optimizedOut,
-                                        optimizeCss: "standard"
+                                        optimizeCss: "standard",
+                                        logLevel: 4 // SILENT
                                     },
                                     function( response ) {
                                         async.waterfall([
@@ -591,6 +592,10 @@ function buildCSSBundles( project, config, name, filter, optimize ) {
                                                 step();
                                             }
                                         ], callback );
+                                    },
+                                    function( err ) {
+                                        // We're expecting a string as the error.
+                                        next( err.message );
                                     }
                                 );
                             } catch ( e2 ){
@@ -663,10 +668,14 @@ function buildJSBundle( project, config, name, filter, optimize ) {
                             _.extend({
                                 out: out,
                                 optimize: ( optimize ? "uglify" : "none" ),
-                                logLevel: 0
+                                logLevel: 4 // SILENT
                             }, config ),
                             function( response ) {
                                 next( null, response );
+                            },
+                            function( err ) {
+                                // We're expecting a string as the error.
+                                next( err.message );
                             }
                         );
                     } catch ( e2 ){
@@ -708,7 +717,7 @@ function buildZipBundle( project, name, config, digest, filter )  {
         if ( exists ) {
             promise.resolve( out );
         } else {
-            promiseUtils.all([
+            promiseUtils.allOrNone([
                 buildCSSBundles( project, config, digest, filter ),
                 buildCSSBundles( project, config, digest, filter, true ),
                 buildJSBundle( project, config, digest, filter ),
@@ -748,6 +757,9 @@ function buildZipBundle( project, name, config, digest, filter )  {
                             promise.resolve( out );
                         }
                     });
+                },
+                function( err ) {
+                    promise.reject( err );
                 }
             )
         }
@@ -780,7 +792,8 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
         try {
             args[ key ] = JSON.parse( args[ key ] );
         } catch( e ) {
-            logger.log( "JSON.parse threw parsing '" + key + "': " + e );
+            // It's not really an error. If it's a string it'll throw, that's fine.
+//            logger.log( "JSON.parse threw while parsing '" + key + "': " + e );
         }
     });
 
@@ -820,8 +833,12 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
     }
 
     function onBundleBuildError( error ) {
-        res.header( "Access-Control-Allow-Origin", "*");
-        res.send( error, 500 );
+//        res.header( "Access-Control-Allow-Origin", "*");
+        if ( typeof error === "string" ){
+            res.json( 500, { error: error } );
+        } else {
+            res.json( 500, { error: error.message } );
+        }
         delete bundlePromises[ digest ];
     }
 
@@ -914,7 +931,7 @@ app.get( '/v1/dependencies/:owner/:repo/:ref', function ( req, res ) {
             res.header( "Access-Control-Allow-Origin", "*");
             res.json( content );
         }, function( err ) {
-            res.send( err, 500 );
+            res.send( 500, { error: err } );
         });
 });
 

@@ -28,7 +28,7 @@
     "dependencies":{
         "async":"latest",
         "css-concat":"latest",
-        "express":"2.5.2",
+        "express":"3.2.0",
         "mime":"latest",
         "mkdirp": "latest",
         "optimist":"latest",
