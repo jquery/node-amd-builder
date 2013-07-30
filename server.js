@@ -805,6 +805,8 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function ( req, res ) {
         preserveLicenseComments: true
 	}, args );
 
+    shasum.update( req.params.repo );
+    shasum.update( req.params.ref );
     shasum.update( JSON.stringify( config ) );
     shasum.update( mimetype );
     if ( filter ) {
