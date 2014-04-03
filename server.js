@@ -6,6 +6,7 @@ var _ = require( 'underscore' ),
 	async = require( 'async' ),
 	crypto = require( 'crypto' ),
 	cssConcat = require( 'css-concat' ),
+	dependencies = require( "./lib/dependencies" ),
 	fetch = require( './lib/project' ).fetch,
 	fs = require( 'fs' ),
 	logger = require( 'simple-log' ).init( 'amd-builder' ),
@@ -40,10 +41,11 @@ var httpPort = argv.port || 3000,
 		.stagingDir( argv.s || process.env.WORK_BASE_DIR )
 		.Project,
 	filters = {},
-	bundlePromises = {},
-	dependenciesPromises = {};
+	bundlePromises = {};
 
 logger.log( "Starting up with repos in '" + argv.r + "' and workspaces in '" + argv.s + "'" );
+
+dependencies.setLogFunction( logger.log );
 
 app.configure( 'development', function() {
 	app.use( express.errorHandler({ dumpExceptions: true, showStack: true }) );
@@ -64,8 +66,8 @@ function afterProjectCheckout( project ) {
 		delete require.cache[ filterPath ];
 		delete filters[ wsDir ][ filterPath ];
 	}
-	dependenciesPromises = {};
 	bundlePromises = {};
+	dependencies.reset();
 }
 
 app.get( '/', function( req, res ) {
@@ -186,254 +188,26 @@ function redefineRequireJSLogging() {
 
 var bid = 0;
 function buildDependencyMap( project, baseUrl, include ) {
-	var id = bid++;
-	// logger.log( "buildDependencyMap["+id+"]()" );
-	var promise = new Promise(),
-		shasum = crypto.createHash( 'sha1' ),
-		compileDir = project.getCompiledDirSync(),
-		filename = "",
-		getFiles = function( dir, filterFn, mapFn, callback ) {
-			// Recurse through directories in dir and collect a list of files that gets filtered by filterFn
-			// The resulting list is processed by mapFn (remove extension for instance)
-			fs.readdir( dir, function( err, dirEntries ) {
-				// logger.log( "buildDependencyMap["+id+"](): step 1.1" );
-				var filteredFiles, include;
+	var promise = new Promise();
 
-				if ( err ) {
-					callback( err );
-				} else {
-					async.waterfall([
-						function( next ) {
-							//Filter directories
-							async.filter( dirEntries,
-								function( dirEntry, callback ) {
-									fs.stat( path.join( dir, dirEntry ), function( err, stats ) {
-										if ( err ) {
-											callback( false );
-										} else {
-											callback( stats.isDirectory() );
-										}
-									});
-								}, function( results ) {
-									next( null, results );
-								}
-							);
-						},
-						function( dirs, next ) {
-							async.map( dirs,
-								function( dirName, callback ) {
-									callback( null, path.join( dir, dirName ) );
-								}, next );
-						},
-						function( dirs, next ) {
-							async.concat( dirs,
-								function( subdir, cb ) {
-									getFiles( subdir, filterFn, mapFn, cb );
-								}, next
-							);
-						},
-						function( modules, next ) {
-							async.filter( dirEntries,
-								function( item, callback ) {
-									callback( filterFn( item ) );
-								},
-								function( filteredFiles ) {
-									next( null, modules, filteredFiles );
-								}
-							);
-						},
-						function( modules, filteredFiles, next ) {
-							async.map( filteredFiles,
-								function( item, callback ) {
-									callback( null, mapFn( path.join( dir, item ) ) );
-								},
-								function( err, results ) {
-									next( err, modules.concat( results ) );
-								}
-							);
-						}
-					], function( err, results ) {
-						callback( err, results );
-					});
-				}
-			});
-		};
-
-	// Setting baseUrl to absolute
-	baseUrl = path.normalize( path.join( project.getWorkspaceDirSync(), baseUrl ) );
-
-	async.waterfall([
+	async.series([
 		function( next ) {
 			project.checkoutIfEmpty( next );
-		},
-		function( next ) {
-			// logger.log( "buildDependencyMap["+id+"](): step 1" );
-			// If no name is provided, scan the baseUrl for js files and return the dep map for all JS objects in baseUrl
-			if ( include && include.length > 0 ) {
-				next();
-			} else {
-				getFiles( baseUrl,
-					function( file ) {
-						return path.extname( file ) === ".js";
-					},
-					function( file ) {
-						var relPath = path.relative( baseUrl, file );
-						return relPath.substring( 0, relPath.length - ".js".length );
-					},
-					function( err, modules ) {
-						include = modules;
-						next( err );
-					}
-				);
-			}
-		},
-		function( next ) {
-			// logger.log( "buildDependencyMap["+id+"](): step 2" );
-			// Generate a sha on the sorted names
-			var digest = shasum.update( include.join( "," ) ).digest( "hex" );
-
-			filename += path.join( compileDir, "deps-" + digest + ".json" );
-
-			fs.exists( filename, function( exists ) {
-				next( null, digest, exists )
-			});
-		},
-		function( digest, exists, next ) {
-			// logger.log( "buildDependencyMap["+id+"](): step 3" );
-			if ( exists ) {
-				fs.readFile( filename, "utf8", function( err, data ) {
-					if ( err ) {
-						next( err );
-					} else {
-						next( err, JSON.parse( data ) );
-					}
-				});
-			} else {
-				if ( !dependenciesPromises[ digest ]) {
-					dependenciesPromises[ digest ] = promise;
-					async.waterfall([
-						function( cb ) {
-							// logger.log( "buildDependencyMap["+id+"](): step 3.1" );
-							fs.mkdir( compileDir, function( err ) {
-								if ( err && err.code != "EEXIST" ) {
-									cb( err );
-								} else {
-									cb();
-								}
-							});
-						},
-						function( cb ) {
-							// logger.log( "buildDependencyMap["+id+"](): step 3.2" );
-							redefineRequireJSLogging();
-
-							requirejs.tools.useLib( function( r ) {
-								r([ 'parse' ], function( parse ) {
-									cb( null, parse );
-								})
-							});
-						},
-						function( parse, cb ) {
-							// logger.log( "buildDependencyMap["+id+"](): step 3.3" );
-							var deps = {};
-							async.forEach( include, function( name, done ) {
-								var fileName = path.join( baseUrl, name + ".js" ),
-									dirName = path.dirname( fileName );
-								// logger.log( "Processing: " + fileName );
-								fs.readFile( fileName, 'utf8', function( err, data ) {
-									if ( err ) {
-										callback( err );
-									}
-									deps[ name ] = {};
-									deps[ name ].deps = parse.findDependencies( fileName, data ).map(
-										function( module ) {
-											// resolve relative paths
-											return path.relative( baseUrl, path.resolve( dirName, module ) );
-										}
-									);
-									done();
-								});
-							}, function( err ) {
-								cb( err, deps );
-							});
-						},
-						function( deps, cb ) {
-							// logger.log( "buildDependencyMap["+id+"](): step 3.4" );
-							// Walk through the dep map and remove baseUrl and js extension
-							var module,
-								modules = [],
-								baseUrlRE = new RegExp( "^" + regexp.escapeString( baseUrl + "/" ) ),
-								jsExtRE = new RegExp( regexp.escapeString( ".js" ) + "$" );
-							for ( module in deps ) {
-								modules.push( module );
-							}
-
-							async.forEach( modules,
-								function( item, callback ) {
-									async.waterfall([
-										function( next ) {
-											// logger.log( "buildDependencyMap["+id+"](): step 3.4.1" );
-											fs.readFile( path.join( baseUrl, item + ".js" ), 'utf8', next );
-										},
-										function( data, next ) {
-											// logger.log( "buildDependencyMap["+id+"](): step 3.4.2" );
-											var lines = data.split( "\n" ),
-												matches = lines.filter( function( line, index ) {
-													return /^.*\/\/>>\s*[^:]+:.*$/.test( line );
-												});
-											if ( matches && matches.length ) {
-												matches.forEach( function( meta ) {
-													var attr = meta.replace( /^.*\/\/>>\s*([^:]+):.*$/, "$1" ).trim(),
-														attrLabelRE = new RegExp( "^.*" + regexp.escapeString( "//>>" + attr + ":" ) + "\\s*", "m" ),
-														value = meta.replace( attrLabelRE, "" ).trim(),
-														namespace, name,
-														indexOfDot = attr.indexOf( "." );
-													if ( indexOfDot > 0 ) { // if there is something before the dot
-														namespace = attr.split( "." )[0];
-														name = attr.substring( indexOfDot + 1 );
-														deps[ item ][ namespace ] = deps[ item ][ namespace ] || {};
-														deps[ item ][ namespace ][ name ] = value;
-													} else {
-														deps[ item ][ attr ] = value;
-													}
-												});
-											}
-											next();
-										}
-									], callback );
-								},
-								function( err ) {
-									if ( err ) {
-										cb( err );
-									} else {
-										cb( null, deps );
-									}
-								}
-							)
-						},
-						function( deps, cb ) {
-							// logger.log( "buildDependencyMap["+id+"](): step 3.5" );
-							fs.writeFile( filename, JSON.stringify( deps ), "utf8",
-								function( err ) {
-									cb( err, deps );
-								}
-							);
-						}
-					], next );
-				} else {
-					dependenciesPromises[ digest ].then(
-						function( data ) {
-							next( null, data );
-						},
-						next
-					);
-				}
-			}
 		}
-	], function( err, data ) {
+	], function( err ) {
 		if ( err ) {
+			logger.error( "Error while building dependency map: " + err );
 			promise.reject( err );
 		} else {
-			promise.resolve( data );
+			dependencies.buildMap(
+				project.getWorkspaceDirSync(),
+				project.getCompiledDirSync(),
+				baseUrl,
+				include
+			).then(
+				promise.resolve,
+				promise.reject
+			);
 		}
 	});
 	return promise;

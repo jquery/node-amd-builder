@@ -1,48 +1,43 @@
 {
-    "name":"amd-builder",
-    "description":"A service that builds bundles from AMD projects resources",
-    "version":"0.4.12",
-    "keywords":[
-        "jquery mobile",
-        "amd",
-        "build"
-    ],
-    "maintainers":[
-        {
-            "name":"Ghislain Seguin",
-            "email":"ghislain@gmail.com"
-        }
-    ],
-    "contributors":[
-        {
-            "name":"Ghislain Seguin",
-            "email":"ghislain@gmail.com"
-        }
-    ],
-    "repositories":[
-        {
-            "type":"git",
-            "url":"git@github.com:gseguin/node-amd-builder.git"
-        }
-    ],
-    "dependencies":{
-        "async":"latest",
-        "css-concat":"latest",
-        "express":"3.2.0",
-        "mime":"latest",
-        "mkdirp": "latest",
-        "optimist":"latest",
-        "node-promise":"latest",
-        "request":"latest",
-        "requirejs":"latest",
-        "rimraf":"latest",
-        "semver":"latest",
-        "simple-log": "~1.0.1",
-        "underscore":"latest",
-        "node-native-zip":"~1.0.1"
-    },
-    "main":"server.js",
-    "engine":{
-        "node":"~0.8.6"
-    }
+	"name": "amd-builder",
+	"description": "A service that builds bundles from AMD projects resources",
+	"version": "0.4.12",
+	"keywords": [
+		"jquery mobile",
+		"amd",
+		"build"
+	],
+	"maintainers": [
+		{
+			"name": "Ghislain Seguin",
+			"email": "ghislain@gmail.com"
+		}
+	],
+	"repositories": [
+		{
+			"type": "git",
+			"url": "git@github.com:gseguin/node-amd-builder.git"
+		}
+	],
+	"dependencies": {
+		"async": "latest",
+		"css-concat": "latest",
+		"express": "3.2.0",
+		"mime": "latest",
+		"mkdirp": "latest",
+		"optimist": "latest",
+		"node-promise": "latest",
+		"glob": "3.2.9",
+		"request": "latest",
+		"requirejs": "latest",
+		"rimraf": "latest",
+		"semver": "latest",
+		"simple-log": "1.0.1",
+		"underscore": "latest",
+		"node-native-zip": "1.0.1"
+	},
+	"main": "server.js",
+	"engine": {
+		"node": "0.10.x"
+	}
 }
