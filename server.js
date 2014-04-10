@@ -3,9 +3,10 @@
 var _ = require( 'underscore' ),
 	express = require( 'express' ),
 	app = express(),
+	applyFilter = require( './lib/filter' ).apply,
 	async = require( 'async' ),
 	crypto = require( 'crypto' ),
-	cssConcat = require( 'css-concat' ),
+	css = require( './lib/css' ),
 	dependencies = require( "./lib/dependencies" ),
 	fetch = require( './lib/project' ).fetch,
 	fs = require( 'fs' ),
@@ -14,11 +15,8 @@ var _ = require( 'underscore' ),
 	path = require( 'path' ),
 	promiseUtils = require( 'node-promise' ),
 	Promise = require( 'node-promise' ).Promise,
-	when = require( 'node-promise' ).when,
-	regexp = require( './lib/regexp' ),
 	requirejs = require( 'requirejs' ),
 	semver = require( 'semver' ),
-	url = require( 'url' ),
 	zip = require( "node-native-zip" );
 
 var argv = require( 'optimist' )
@@ -201,8 +199,8 @@ function buildDependencyMap( project, baseUrl, include ) {
 		} else {
 			dependencies.buildMap(
 				project.getWorkspaceDirSync(),
-				project.getCompiledDirSync(),
 				baseUrl,
+				project.getCompiledDirSync(),
 				include
 			).then(
 				promise.resolve,
@@ -213,190 +211,8 @@ function buildDependencyMap( project, baseUrl, include ) {
 	return promise;
 }
 
-function applyFilter( baseUrl, filter, contents, ext, callback ) {
-	if ( filter ) {
-		require( path.join( baseUrl, filter ) )( contents, ext, callback );
-	} else {
-		callback( null, contents );
-	}
-}
-
-function buildCSSBundles( project, config, name, filter, optimize ) {
-	// logger.log( "buildCSSBundle()" );
-	var promise = new Promise(),
-		baseUrl = path.normalize( path.join( project.getWorkspaceDirSync(), config.baseUrl ) ),
-		include = config.include,
-		baseOut = path.join( project.getCompiledDirSync(), name );
-
-	// get the dependency map for all modules
-	buildDependencyMap( project, config.baseUrl ).then(
-		function( modules ) {
-			var cssFiles = {
-					default: []
-				},
-				contents = {
-					default: ""
-				},
-				outputFiles = [];
-
-			async.waterfall([
-				function( next ) {
-					var name,
-						processed = {},
-						addCssDependencies = function( m ) {
-							processed[ m ] = true;
-							if ( !processed[ m ] && modules[ m ] && modules[ m ].deps ) {
-								modules[ m ].deps.forEach( addCssDependencies );
-							}
-							if ( modules[ m ] && modules[ m ].css ) {
-								if ( typeof( modules[ m ].css ) === "string" ) {
-									// logger.log( "Adding: " + modules[ m ].css );
-									cssFiles.default = _.union( cssFiles.default, modules[ m ].css.split( "," ) );
-								} else {
-									for ( name in modules[ m ].css ) {
-										if ( modules[ m ].css.hasOwnProperty( name ) ) {
-											cssFiles[ name ] = cssFiles[ name ] || [];
-											// logger.log( "Adding css." + name + ": " + modules[ m ].css[ name ]);
-											cssFiles[ name ] = _.union( cssFiles[ name ], modules[ m ].css[ name ].split( "," ) );
-										}
-									}
-								}
-							}
-						};
-
-					include.forEach( addCssDependencies );
-					next();
-				},
-				function( next ) {
-					var keys = Object.keys( cssFiles );
-
-					keys.forEach( function( name ) {
-						if ( cssFiles.hasOwnProperty( name ) ) {
-							// resolve the file paths
-							cssFiles[ name ] = _.uniq( cssFiles[ name ]).map( function( s ) {
-								return path.resolve( baseUrl, s.trim() );
-							});
-
-							contents[ name ] = "";
-							cssFiles[ name ].forEach( function( file ) {
-								contents[ name ] += "\n";
-								try {
-									contents[ name ] += cssConcat.concat( file, { comments: false });
-								} catch ( e ) {
-									next( e.toString() );
-								}
-							});
-							contents[ name ] = contents[ name ].trim();
-							if ( contents[ name ].length === 0 ) {
-								if ( optimize ) {
-									logger.log( name, "CSS file is empty, removing it from optimized bundle" );
-								} else {
-									logger.log( name, "CSS file is empty, removing it from bundle" );
-								}
-								delete contents[ name ];
-								delete cssFiles[ name ];
-							}
-						}
-					});
-					next();
-				},
-				function( next ) {
-					async.forEach(
-						Object.keys( contents ),
-						function( key, callback ) {
-							var unoptimizedOut = baseOut + ( key === "default" ? "" : ( "." + key ) ) + ".css";
-
-							async.waterfall([
-								function( step ) {
-									applyFilter( baseUrl, filter, contents[ key ], ".css", step );
-								},
-								function( content, step ) {
-									fs.writeFile( unoptimizedOut, content, 'utf8', step );
-								},
-								function( step ) {
-									if ( !optimize ) {
-										outputFiles.push( unoptimizedOut );
-									}
-									step();
-								}
-							], callback );
-
-						},
-						next
-					);
-				},
-				function( next ) {
-					async.forEach(
-						Object.keys( contents ),
-						function( key, callback ) {
-							var unoptimizedOut = baseOut + ( key === "default" ? "" : ( "." + key ) ) + ".css",
-								optimizedOut = baseOut + ( key === "default" ? "" : ( "." + key ) ) + ".min.css";
-
-							try {
-								process.chdir( project.getWorkspaceDirSync() );
-							}
-							catch ( e1 ) {
-								next( e1.toString() );
-							}
-
-							redefineRequireJSLogging();
-
-							try {
-								requirejs.optimize(
-									{
-										cssIn: unoptimizedOut,
-										out: optimizedOut,
-										optimizeCss: "standard",
-										logLevel: 4 // SILENT
-									},
-									function( response ) {
-										async.waterfall([
-											function( step ) {
-												fs.readFile( optimizedOut, "utf-8", step );
-											},
-											function( content, step ) {
-												applyFilter( baseUrl, filter, content, ".min.css", step );
-											},
-											function( content, step ) {
-												fs.writeFile( optimizedOut, content, 'utf8', step );
-											},
-											function( step ) {
-												if ( optimize ) {
-													outputFiles.push( optimizedOut );
-												}
-												step();
-											}
-										], callback );
-									},
-									function( err ) {
-										// We're expecting a string as the error.
-										next( err.message );
-									}
-								);
-							} catch ( e2 ) {
-								next( e2.toString() );
-							}
-						},
-						next
-					);
-				}
-			], function( err ) {
-				if ( err ) {
-					promise.reject( err );
-				} else {
-					if ( outputFiles.length === 0 || outputFiles.length > 1 ) {
-						promise.resolve( outputFiles );
-					} else {
-						promise.resolve( outputFiles[ 0 ]);
-					}
-				}
-			});
-		},
-		function( err ) {
-			promise.reject( err );
-		}
-	);
-	return promise;
+function buildCSSBundles( project, config, baseName, filter, optimize ) {
+	return css.buildBundles( baseName, project.getWorkspaceDirSync(), config.baseUrl, project.getCompiledDirSync(), config.include, filter, optimize );
 }
 
 var bjsid = 0;
