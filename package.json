@@ -35,8 +35,8 @@
 	},
 	"devDependencies": {
 		"grunt": "0.4.4",
-		"grunt-contrib-jshint": "0.6.3",
-		"grunt-release-it": "latest",
+		"grunt-contrib-jshint": "0.10.0",
+		"grunt-release-it": "0.1.1",
 		"load-grunt-tasks": "0.3.0"
 	},
 	"main": "server.js",
