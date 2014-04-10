@@ -1,6 +1,6 @@
 'use strict';
 
-var _ = require( 'underscore' ),
+var _ = require( 'lodash' ),
 	express = require( 'express' ),
 	app = express(),
 	applyFilter = require( './lib/filter' ).apply,
