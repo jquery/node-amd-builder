@@ -3,9 +3,8 @@
 	"description": "A service that builds bundles from AMD projects resources",
 	"version": "0.4.12",
 	"keywords": [
-		"jquery mobile",
 		"amd",
-		"build"
+		"webbuilder"
 	],
 	"maintainers": [
 		{
@@ -13,12 +12,10 @@
 			"email": "ghislain@gmail.com"
 		}
 	],
-	"repositories": [
-		{
-			"type": "git",
-			"url": "git@github.com:gseguin/node-amd-builder.git"
-		}
-	],
+	"repository": {
+		"type": "git",
+		"url": "git@github.com:gseguin/node-amd-builder.git"
+	},
 	"dependencies": {
 		"async": "0.7.0",
 		"css-concat": "0.0.4",
@@ -32,7 +29,7 @@
 		"requirejs": "2.1.11",
 		"rimraf": "2.2.6",
 		"semver": "2.2.1",
-		"simple-log": "1.0.1",
+		"simple-log": "1.1.0",
 		"lodash": "2.4.1",
 		"node-native-zip": "1.0.1"
 	},
