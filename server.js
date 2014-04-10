@@ -74,13 +74,13 @@ app.get( '/', function( req, res ) {
 
 app.post( '/post_receive', function( req, res ) {
 	var payload = req.body.payload,
-		owner, repo, repoUrl, ref, refType, refName, project,
+		owner, repo, ref, refType, refName, project,
 		fetchIfExists = function( candidates, callback ) {
 			var dir = candidates.shift();
 			fs.exists( dir, function( exists ) {
 				if ( exists ) {
 					fetch( dir,
-						function( error, stdout, stderr ) {
+						function( error /*, stdout, stderr */ ) {
 							if ( error !== null ) {
 								res.send( error, 500 );
 							} else {
@@ -184,7 +184,6 @@ function redefineRequireJSLogging() {
 	});
 }
 
-var bid = 0;
 function buildDependencyMap( project, baseUrl, include ) {
 	var promise = new Promise();
 
@@ -215,13 +214,12 @@ function buildCSSBundles( project, config, baseName, filter, optimize ) {
 	return css.buildBundles( baseName, project.getWorkspaceDirSync(), config.baseUrl, project.getCompiledDirSync(), config.include, filter, optimize );
 }
 
-var bjsid = 0;
+//var bjsid = 0;
 function buildJSBundle( project, config, name, filter, optimize ) {
-	var id = bjsid++;
-	// logger.log( "buildJSBundle["+id+"]()" );
+//	var id = bjsid++;
+//	logger.log( "buildJSBundle["+id+"]()" );
 	var promise = new Promise(),
 		baseUrl = path.normalize( path.join( project.getWorkspaceDirSync(), config.baseUrl ) ),
-		wsDir = project.getWorkspaceDirSync(),
 		ext = ( optimize ? ".min" : "" ) + ".js",
 		out = path.join( project.getCompiledDirSync(), name + ext );
 
@@ -236,7 +234,7 @@ function buildJSBundle( project, config, name, filter, optimize ) {
 					var outDir = path.dirname( config.out );
 					// logger.log( "mkdir '" + outDir + "'" );
 					fs.mkdir( outDir, function( err ) {
-						if ( err && err.code != "EEXIST" ) {
+						if ( err && err.code !== "EEXIST" ) {
 							next( err );
 						} else {
 							next();
@@ -300,8 +298,6 @@ function buildJSBundle( project, config, name, filter, optimize ) {
 function buildZipBundle( project, name, config, digest, filter ) {
 	// logger.log( "buildZipBundle()" );
 	var promise = new Promise(),
-		baseUrl = config.baseUrl,
-		basename = path.basename( name, ".zip" ),
 		out = path.join( project.getCompiledDirSync(), digest + ".zip" );
 
 	fs.exists( out, function( exists ) {
@@ -354,7 +350,7 @@ function buildZipBundle( project, name, config, digest, filter ) {
 				function( err ) {
 					promise.reject( err );
 				}
-			)
+			);
 		}
 	});
 	return promise;
@@ -518,9 +514,8 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function( req, res ) {
 app.get( '/v1/dependencies/:owner/:repo/:ref', function( req, res ) {
 	var project = new Project( req.params.owner, req.params.repo, req.params.ref ),
 		names = req.param( "names", "" ).split( "," ).filter(function( name ) {
-			return !!name
+			return !!name;
 		}).sort(),
-		exclude = req.param( "exclude", "" ).split( "," ).sort(),
 		baseUrl = req.param( "baseUrl", "." );
 
 	buildDependencyMap( project, baseUrl, names )
