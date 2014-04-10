@@ -33,6 +33,12 @@
 		"lodash": "2.4.1",
 		"node-native-zip": "1.0.1"
 	},
+	"devDependencies": {
+		"grunt": "0.4.4",
+		"grunt-contrib-jshint": "0.6.3",
+		"grunt-release-it": "latest",
+		"load-grunt-tasks": "0.3.0"
+	},
 	"main": "server.js",
 	"engine": {
 		"node": "0.10.x"
