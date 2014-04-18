@@ -1,9 +1,8 @@
-# Node AMD builder
+amd-builder
+==========
 
 This project aims at providing a NodeJS service to build bundles out of AMD projects in a git repository. This was developed to help jQuery Mobile build the bundle builder.
 Initial checkout as well as workspace creation have to be done manually.
-
-[![endorse](http://api.coderwall.com/ghislain/endorse.png)](http://coderwall.com/ghislain)
 
 ## API v1
 
@@ -63,6 +62,14 @@ node server.js -r <basedir>/repos -s <basedir>/staging
 
 1. Add a post_receive hook to the your GitHub repo pointing at ```http://instance:3000/post_receive```
 
-## License
+## Author
 
-Copyright (c) 2012, Ghislain Seguin (MIT License)
+* Ghislain Seguin - [@gseguin](http://twitter.com/gseguin)
+
+[![endorse](http://api.coderwall.com/ghislain/endorse.png)](http://coderwall.com/ghislain)
+
+## Credits
+
+Thanks to:
+
+* [Jive Software](https://jivesoftware.com) - my employer - for letting me work on cool projects like this
