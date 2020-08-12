@@ -5,28 +5,31 @@ var _ = require( 'lodash' ),
 	app = express(),
 	applyFilter = require( './lib/filter' ).apply,
 	async = require( 'async' ),
+	bodyParser = require( 'body-parser' ),
 	crypto = require( 'crypto' ),
+	errorhandler = require( "errorhandler" ),
+	morgan = require( "morgan" ),
 	css = require( './lib/css' ),
 	dependencies = require( "./lib/dependencies" ),
 	fetch = require( './lib/project' ).fetch,
 	fs = require( 'fs' ),
-	logger = require( 'simple-log' ).init( 'amd-builder' ),
+	logger = require( './lib/simple-log' ).init( 'amd-builder' ),
 	mime = require( 'mime' ),
 	path = require( 'path' ),
 	promiseUtils = require( 'node-promise' ),
 	Promise = require( 'node-promise' ).Promise,
 	requirejs = require( 'requirejs' ),
 	semver = require( 'semver' ),
-	zip = require( "node-native-zip" );
+	Zip = require( "node-native-zip" );
 
-var argv = require( 'optimist' )
-	.demand( 'r' )
+var argv = require( 'yargs' )
+	.demandOption( 'r' )
 	.alias( 'r', 'repo-dir' )
 	.describe( 'r', "Root directory for barebone repositories" )
 	.demand( 's' )
 	.alias( 's', 'staging-dir' )
 	.describe( 's', "Root directory for workspaces" )
-	.options( 'p', {
+	.option( 'p', {
 		alias: "port",
 		default: 3000
 	})
@@ -39,22 +42,23 @@ var httpPort = argv.port || 3000,
 		.stagingDir( argv.s || process.env.WORK_BASE_DIR )
 		.Project,
 	filters = {},
-	bundlePromises = {};
+	bundlePromises = {},
+	env = app.get( "env" );
 
 logger.log( "Starting up with repos in '" + argv.r + "' and workspaces in '" + argv.s + "'" );
 
 dependencies.setLogFunction( logger.log );
 
-app.configure( 'development', function() {
-	app.use( express.errorHandler({ dumpExceptions: true, showStack: true }) );
-	app.use( express.logger( 'tiny' ) );
-});
+if ( env === "development" ) {
+	app.use( errorhandler() );
+	app.use( morgan( 'tiny' ) );
+}
 
-app.configure( 'production', function() {
-	app.use( express.logger({ format: '[:date] - :status ":method :url" - :response-time ms' }) );
-});
+if ( env === "production" ) {
+	app.use( morgan( '[:date] - :status ":method :url" - :response-time ms' ) );
+}
 
-app.use( express.bodyParser() );
+app.use( bodyParser.json() );
 
 function afterProjectCheckout( project ) {
 	// Clear caches
@@ -311,7 +315,7 @@ function buildZipBundle( project, name, config, digest, filter ) {
 					buildJSBundle( project, config, digest, filter, true )
 				]).then(
 				function( results ) {
-					var archive = new zip();
+					var archive = new Zip();
 
 					async.series([
 						function( next ) {
@@ -359,13 +363,13 @@ function buildZipBundle( project, name, config, digest, filter ) {
 app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function( req, res ) {
 	logger.log( "Building bundle for " + req.params.owner + "/" + req.params.repo + " ref: " + req.params.ref );
 	var project = new Project( req.params.owner, req.params.repo, req.params.ref ),
-		include = req.param( "include", "main" ).split( "," ).sort(),
-		exclude = req.param( "exclude", "" ).split( "," ).sort(),
-		optimize = Boolean( req.param( "optimize", false ) ).valueOf(),
+		include = ( req.query.include || "main" ).split( "," ).sort(),
+		exclude = ( req.query.exclude || "" ).split( "," ).sort(),
+		optimize = Boolean( req.query.optimize || false ).valueOf(),
 		name = req.params.name || ( req.params.repo + ".js" ),
 		ext = (optimize !== "none" ? ".min" : "") + ( path.extname( name ) || ".js" ),
-		mimetype = mime.lookup( ext ),
-		filter = req.param( "filter" ),
+		mimetype = mime.getType( ext ),
+		filter = req.query.filter,
 		shasum = crypto.createHash( 'sha1' ),
 		wsDir = project.getWorkspaceDirSync(),
 		args = _.clone( req.query ),
@@ -445,7 +449,7 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function( req, res ) {
 		bundlePromises[ hash ].then( onBundleBuilt, onBundleBuildError );
 	}
 
-	function onBundleBuilt( bundle ) {
+	function onBundleBuilt( bundle ) { // jshint ignore:line
 		var out,
 			promise = new Promise();
 
@@ -477,7 +481,7 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function( req, res ) {
 				if ( exists ) {
 					promise.resolve({ path: out, name: name });
 				} else {
-					archive = new zip();
+					archive = new Zip();
 					async.series([
 						function( next ) {
 							archive.addFiles(
@@ -513,17 +517,17 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function( req, res ) {
 
 app.get( '/v1/dependencies/:owner/:repo/:ref', function( req, res ) {
 	var project = new Project( req.params.owner, req.params.repo, req.params.ref ),
-		names = req.param( "names", "" ).split( "," ).filter(function( name ) {
+		names = ( req.query.names || "" ).split( "," ).filter(function( name ) {
 			return !!name;
 		}).sort(),
-		baseUrl = req.param( "baseUrl", "." );
+		baseUrl = req.query.baseUrl || ".";
 
 	buildDependencyMap( project, baseUrl, names )
 		.then( function( content ) {
 			res.header( "Access-Control-Allow-Origin", "*" );
 			res.json( content );
 		}, function( err ) {
-			res.send( 500, { error: err });
+			res.status( 500 ).send( { error: err } );
 		});
 });
 
