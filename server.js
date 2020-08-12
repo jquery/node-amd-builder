@@ -235,7 +235,7 @@ function buildJSBundle( project, config, name, filter, optimize ) {
 			async.waterfall([
 				function( next ) {
 					// logger.log( "buildJSBundle["+id+"](): step 1" );
-					var outDir = path.dirname( config.out );
+					var outDir = path.dirname( config.out || project.getCompiledDirSync() );
 					// logger.log( "mkdir '" + outDir + "'" );
 					fs.mkdir( outDir, function( err ) {
 						if ( err && err.code !== "EEXIST" ) {
