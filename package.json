@@ -24,7 +24,6 @@
     "glob": "7.1.6",
     "lodash": "4.17.20",
     "mime": "2.4.6",
-    "modern-syslog": "1.2.0",
     "morgan": "1.10.0",
     "node-native-zip": "1.1.0",
     "node-promise": "0.5.14",
@@ -33,6 +32,9 @@
     "rimraf": "3.0.2",
     "semver": "7.3.2",
     "yargs": "15.4.1"
+  },
+  "optionalDependencies": {
+    "modern-syslog": "1.2.0"
   },
   "devDependencies": {
     "grunt": "1.3.0",
