@@ -33,6 +33,7 @@ var argv = require( 'yargs' )
 		alias: "port",
 		default: 3000
 	})
+	.describe( 'console', 'Pass to print logging messages to the console instead of syslog' )
 	.usage( 'Usage: $0 -r <path> -s <path> [-p <port>]' )
 	.argv;
 

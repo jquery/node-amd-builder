@@ -42,25 +42,47 @@ URL arguments are:
 
 ### Setup an instance for your project
 
+Perform all the following operations in the `node-amd-builder` main folder.
+
 1. Clone a bare repo of your project:
-```
-mkdir <basedir>/repos
-cd <basedir>/repos
-git clone --bare git://github.com/yourname/yourproject.git
-```
+    ```
+    mkdir repos
+    cd repos
+    git clone --bare git://github.com/yourname/yourproject.git
+    ```
 
 1. Now create the staging directory:
-```
-mkdir <basedir>/staging
-```
+    ```
+    mkdir -p staging
+    ```
+
 1. Install the dependencies with ```npm install```
 
 1. Start the service:
-```
-node server.js -r <basedir>/repos -s <basedir>/staging
-```
+    ```
+    node server.js -r "$(pwd)/repos" -s "$(pwd)/staging"
+    ```
 
 1. Add a post_receive hook to the your GitHub repo pointing at ```http://instance:3000/post_receive```
+
+### Setup an instance for jQuery Migrate
+
+Perform all the following operations in the `node-amd-builder` main folder. Make sure you use Node.js v14.14.0 or higher.
+
+1. Install the dependencies with `npm install`
+
+1. Invoke:
+    ```
+    scripts/setup-mobile.js
+    ```
+
+1. Start the service:
+    ```
+    node server.js -r "$(pwd)/repos" -s "$(pwd)/staging"
+    ```
+    Invoke just `node server.js --help` to see other available options.
+
+1. ~~Add a post_receive hook to the your GitHub repo pointing at `http://instance:3000/post_receive`~~ (only needed if you don't checkout tags manually as described above)
 
 ## Author
 
