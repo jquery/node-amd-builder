@@ -430,9 +430,9 @@ app.get( '/v1/bundle/:owner/:repo/:ref/:name?', function( req, res ) {
 	function onBundleBuildError( error ) {
 		//        res.header( "Access-Control-Allow-Origin", "*");
 		if ( typeof error === "string" ) {
-			res.json( 500, { error: error });
+			res.status( 500 ).json( { error: error } );
 		} else {
-			res.json( 500, { error: error.message });
+			res.status( 500 ).json( { error: error.message } );
 		}
 		delete bundlePromises[ digest ];
 	}
