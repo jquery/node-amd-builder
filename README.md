@@ -1,8 +1,11 @@
 amd-builder
 ==========
 
-This project aims at providing a NodeJS service to build bundles out of AMD projects in a git repository. This was developed to help jQuery Mobile build the bundle builder.
+This project aims at providing a Node.s service to build bundles out of AMD projects in a Git repository. This was developed for building jQuery Mobile bundles.
 Initial checkout as well as workspace creation have to be done manually.
+
+* Frontend: <https://jquerymobile.com/download-builder/>
+* API instance: <https://amd-builder.jquerymobile.com/>
 
 ## API v1
 
