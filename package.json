@@ -22,7 +22,7 @@
     "errorhandler": "1.5.1",
     "express": "4.17.3",
     "glob": "7.1.6",
-    "lodash": "4.17.20",
+    "lodash": "4.17.21",
     "mime": "2.4.6",
     "morgan": "1.10.0",
     "node-native-zip": "1.1.0",
