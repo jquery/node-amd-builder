@@ -51,7 +51,7 @@ Perform all the following operations in the `node-amd-builder` main folder.
     ```
     mkdir repos
     cd repos
-    git clone --bare git://github.com/yourname/yourproject.git
+    git clone --bare git@github.com:yourname/yourproject.git
     ```
 
 1. Now create the staging directory:
