@@ -12,9 +12,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "git@github.com:gseguin/node-amd-builder.git"
+    "url": "git@github.com:jquery/node-amd-builder.git"
   },
-  "bugs": "https://github.com/gseguin/node-amd-builder/issues",
+  "bugs": "https://github.com/jquery/node-amd-builder/issues",
   "license": "MIT",
   "dependencies": {
     "async": "3.2.2",
