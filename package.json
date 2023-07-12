@@ -30,7 +30,7 @@
     "request": "2.88.2",
     "requirejs": "2.3.6",
     "rimraf": "3.0.2",
-    "semver": "7.3.2",
+    "semver": "7.5.2",
     "yargs": "15.4.1"
   },
   "optionalDependencies": {
